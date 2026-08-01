@@ -9,10 +9,8 @@ app.use(cors());
 app.use(express.json());
 
 // 1. MONGODB DATABASE CONNECTION
-mongoose.connect(process.env.MONGODB_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true
-}).then(() => console.log('✅ MongoDB Database Connected!'))
+mongoose.connect(process.env.MONGODB_URI)
+  .then(() => console.log('✅ MongoDB Database Connected!'))
   .catch((err) => console.log('❌ Database Connection Error:', err));
 
 const userSchema = new mongoose.Schema({
