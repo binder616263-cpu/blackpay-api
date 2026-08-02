@@ -22,42 +22,39 @@ app.post('/api/verify-upi', async (req, res) => {
     const { upi_id, wallet_type } = req.body;
 
     if (!upi_id) {
-        return res.json({ success: false, message: "UPI ID khali hai!" });
+        return res.json({ success: false, message: "Number khali hai!" });
     }
 
-    // 💡 TERA JUGAD: UPI ID mein se Phone Number nikalna (e.g. 8191010202@paytm -> 8191010202)
-    let phoneNumber = upi_id;
-    if (upi_id.includes('@')) {
-        phoneNumber = upi_id.split('@')[0]; 
-    }
+    // Phone Number nikalna (Agar user galti se @paytm daal de toh bhi sirf number aayega)
+    let phoneNumber = upi_id.includes('@') ? upi_id.split('@')[0] : upi_id;
 
     try {
         console.log(`Scanning Phone Number: ${phoneNumber} for Wallet: ${wallet_type}`);
 
         // ========================================================
-        // 🚨 YAHAN APNI RAPID API KI DETAILS DAAL 🚨
+        // 🚨 RAPID API CONFIGURATION 🚨
         // ========================================================
         const options = {
             method: 'GET',
-            // Teri nayi "Number To All UPI" API ka URL yahan daal (Right side Code Snippet se copy kar)
-            url: 'YAHAN_RAPID_API_KA_URL_DAAL_DENA', 
+            // Teri photo me URL nahi dikha, toh maine guess karke dala hai.
+            // Agar chalne me error aaye, toh RapidAPI se 'Request URL' copy karke yahan daal dena.
+            url: 'https://number-to-all-upi.p.rapidapi.com/get_upi_ids', 
             params: { 
-                number: phoneNumber // 🔥 Nayi API ko 'number' chahiye, wo humne de diya!
+                number: phoneNumber 
             },
             headers: {
-                'X-RapidAPI-Key': 'b322713ddcmsha93f34085b060c4p152d87jsne64b0da637ad', // Teri working Key
-                // Yahan is API ka Host name daal (Right side Code Snippet se copy kar)
-                'X-RapidAPI-Host': 'YAHAN_RAPID_API_HOST_DAAL_DENA' 
+                'X-RapidAPI-Key': 'b322713ddcmsha93f34085b060c4p152d87jsne64b0da637ad', 
+                'X-RapidAPI-Host': 'number-to-all-upi.p.rapidapi.com' 
             }
         };
 
         const rapidResponse = await axios.request(options);
         const data = rapidResponse.data;
 
-        // Check karte hain ki array mein VPAs aaye hain ya nahi
+        // Tera photo wala JSON format check kar raha hu (data.vpas)
         if (data && data.vpas && data.vpas.length > 0) {
             
-            // Kisi bhi bank ki detail se asli naam nikal lo (Pehli entry best hai)
+            // Asli naam nikal lo (Pehli entry best hoti hai)
             const realName = data.vpas[0].name;
 
             console.log(`✅ Asli Naam Mil Gaya: ${realName}`);
@@ -65,7 +62,7 @@ app.post('/api/verify-upi', async (req, res) => {
             return res.json({ 
                 success: true, 
                 customer_name: realName, 
-                vpa: upi_id 
+                vpas: data.vpas // Saari list app ko bhej di
             });
 
         } else {
@@ -75,7 +72,7 @@ app.post('/api/verify-upi', async (req, res) => {
     } catch (error) {
         const errorMsg = error.response ? JSON.stringify(error.response.data) : error.message;
         console.error("❌ RapidAPI Error:", errorMsg);
-        return res.json({ success: false, message: `API Error: Server down hai` });
+        return res.json({ success: false, message: `API Error: Please check Backend Logs or URL.` });
     }
 });
 
