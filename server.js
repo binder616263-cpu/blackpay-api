@@ -8,61 +8,70 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// 1. MONGODB DATABASE CONNECTION
+// ==========================================
+// 1. MONGODB DATABASE CONNECTION (Tera safe hai)
+// ==========================================
 mongoose.connect(process.env.MONGODB_URI)
   .then(() => console.log('✅ MongoDB Database Connected!'))
   .catch((err) => console.log('❌ Database Connection Error:', err));
 
-const userSchema = new mongoose.Schema({
-    mobile_number: { type: String, required: true },
-    bound_accounts: [{
-        wallet_type: String,
-        upi_id: String,
-        customer_name: String,
-        is_verified: { type: Boolean, default: false }
-    }]
-});
-const User = mongoose.model('User', userSchema);
-
-// 2. UPI VERIFICATION API (Razorpay)
+// ==========================================
+// 2. 🔥 RAPID-API UPI NAME FETCHER JUGAD 🔥
+// ==========================================
 app.post('/api/verify-upi', async (req, res) => {
+    // Flutter se aane wala data
     const { upi_id, wallet_type, mobile_number } = req.body;
 
     if (!upi_id || !upi_id.includes('@')) {
-        return res.status(400).json({ success: false, message: "Invalid UPI ID Format" });
+        return res.json({ success: false, message: "Invalid UPI ID Format" });
     }
 
     try {
-        console.log(`Verifying UPI: ${upi_id} for Wallet: ${wallet_type}`);
+        console.log(`Scanning UPI: ${upi_id} for Wallet: ${wallet_type}`);
 
-        const razorpayAuth = Buffer.from(`${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`).toString('base64');
+        // 🔥 TERI RAPID API KI SETTING YAHAN HAI 🔥
+        const options = {
+            method: 'GET',
+            // Dhyan de: Agar url error de, toh apni screen ke right side 'Code Snippet' me se exact url copy karlena
+            url: 'https://upi-verification-vpa-upi-qr-code-generation.p.rapidapi.com/api/v1/upi/verify', 
+            params: { vpa: upi_id },
+            headers: {
+                'X-RapidAPI-Key': 'b322713ddcmsha93f34085b060c4p152d87jsne64b0da637ad', // Teri Key!
+                'X-RapidAPI-Host': 'upi-verification-vpa-upi-qr-code-generation.p.rapidapi.com'
+            }
+        };
 
-        const razorpayResponse = await axios.post(
-            'https://api.razorpay.com/v1/payments/validate/vpa',
-            { vpa: upi_id },
-            { headers: { 'Content-Type': 'application/json', 'Authorization': `Basic ${razorpayAuth}` } }
-        );
+        const rapidResponse = await axios.request(options);
+        console.log("RapidAPI Success Response:", rapidResponse.data);
 
-        if (razorpayResponse.data.success === true) {
-            const customerName = razorpayResponse.data.customer_name;
+        // API alag-alag naam bhej sakti hai, hum sab check karenge
+        const responseData = rapidResponse.data;
+        const realName = responseData.name || responseData.customer_name || responseData.clientName || (responseData.data && responseData.data.name);
 
-            await User.findOneAndUpdate(
-                { mobile_number: mobile_number }, 
-                { $push: { bound_accounts: { wallet_type, upi_id, customer_name: customerName, is_verified: true } } },
-                { new: true, upsert: true }
-            );
+        if (realName) {
+            console.log(`✅ Asli Naam Mil Gaya: ${realName}`);
 
-            return res.status(200).json({ success: true, message: "UPI Verified Successfully!", customer_name: customerName });
+            // Yahan tu chahe toh apna User.findOneAndUpdate wala code wapas laga sakta hai (Data save karne ke liye)
+
+            return res.json({
+                success: true,
+                customer_name: realName, // Yeh seedha app ki screen par jayega
+                vpa: upi_id
+            });
         } else {
-            return res.status(400).json({ success: false, message: "UPI ID invalid." });
+            return res.json({ success: false, message: "UPI ID Invalid ya Name fetch nahi hua" });
         }
+
     } catch (error) {
-        return res.status(500).json({ success: false, message: "Server Error during Verification." });
+        console.error("❌ RapidAPI Error:", error.response ? error.response.data : error.message);
+        return res.json({ success: false, message: "Bank se verify karne me fail hua!" });
     }
 });
 
-// 3. SERVER START
+// ==========================================
+// SERVER START
+// ==========================================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`🚀 BlackPay Backend Server is running on port ${PORT}`);
+    console.log(`🚀 BlackPay Engine running on port ${PORT}`);
 });
