@@ -9,62 +9,73 @@ app.use(cors());
 app.use(express.json());
 
 // ==========================================
-// 1. MONGODB DATABASE CONNECTION (Tera safe hai)
+// 1. MONGODB DATABASE CONNECTION
 // ==========================================
 mongoose.connect(process.env.MONGODB_URI)
   .then(() => console.log('✅ MongoDB Database Connected!'))
   .catch((err) => console.log('❌ Database Connection Error:', err));
 
 // ==========================================
-// 2. 🔥 RAPID-API UPI NAME FETCHER JUGAD 🔥
+// 2. 🔥 SMART MOBILE TO UPI FETCHER 🔥
 // ==========================================
 app.post('/api/verify-upi', async (req, res) => {
-    // Flutter se aane wala data
-    const { upi_id, wallet_type, mobile_number } = req.body;
+    const { upi_id, wallet_type } = req.body;
 
-    if (!upi_id || !upi_id.includes('@')) {
-        return res.json({ success: false, message: "Invalid UPI ID Format" });
+    if (!upi_id) {
+        return res.json({ success: false, message: "UPI ID khali hai!" });
+    }
+
+    // 💡 TERA JUGAD: UPI ID mein se Phone Number nikalna (e.g. 8191010202@paytm -> 8191010202)
+    let phoneNumber = upi_id;
+    if (upi_id.includes('@')) {
+        phoneNumber = upi_id.split('@')[0]; 
     }
 
     try {
-        console.log(`Scanning UPI: ${upi_id} for Wallet: ${wallet_type}`);
+        console.log(`Scanning Phone Number: ${phoneNumber} for Wallet: ${wallet_type}`);
 
-        // 🔥 TERI RAPID API KI SETTING YAHAN HAI 🔥
+        // ========================================================
+        // 🚨 YAHAN APNI RAPID API KI DETAILS DAAL 🚨
+        // ========================================================
         const options = {
             method: 'GET',
-            // Dhyan de: Agar url error de, toh apni screen ke right side 'Code Snippet' me se exact url copy karlena
-            url: 'https://upi-verification-vpa-upi-qr-code-generation.p.rapidapi.com/api/v1/upi/verify', 
-            params: { vpa: upi_id },
+            // Teri nayi "Number To All UPI" API ka URL yahan daal (Right side Code Snippet se copy kar)
+            url: 'YAHAN_RAPID_API_KA_URL_DAAL_DENA', 
+            params: { 
+                number: phoneNumber // 🔥 Nayi API ko 'number' chahiye, wo humne de diya!
+            },
             headers: {
-                'X-RapidAPI-Key': 'b322713ddcmsha93f34085b060c4p152d87jsne64b0da637ad', // Teri Key!
-                'X-RapidAPI-Host': 'upi-verification-vpa-upi-qr-code-generation.p.rapidapi.com'
+                'X-RapidAPI-Key': 'b322713ddcmsha93f34085b060c4p152d87jsne64b0da637ad', // Teri working Key
+                // Yahan is API ka Host name daal (Right side Code Snippet se copy kar)
+                'X-RapidAPI-Host': 'YAHAN_RAPID_API_HOST_DAAL_DENA' 
             }
         };
 
         const rapidResponse = await axios.request(options);
-        console.log("RapidAPI Success Response:", rapidResponse.data);
+        const data = rapidResponse.data;
 
-        // API alag-alag naam bhej sakti hai, hum sab check karenge
-        const responseData = rapidResponse.data;
-        const realName = responseData.name || responseData.customer_name || responseData.clientName || (responseData.data && responseData.data.name);
+        // Check karte hain ki array mein VPAs aaye hain ya nahi
+        if (data && data.vpas && data.vpas.length > 0) {
+            
+            // Kisi bhi bank ki detail se asli naam nikal lo (Pehli entry best hai)
+            const realName = data.vpas[0].name;
 
-        if (realName) {
             console.log(`✅ Asli Naam Mil Gaya: ${realName}`);
-
-            // Yahan tu chahe toh apna User.findOneAndUpdate wala code wapas laga sakta hai (Data save karne ke liye)
-
-            return res.json({
-                success: true,
-                customer_name: realName, // Yeh seedha app ki screen par jayega
-                vpa: upi_id
+            
+            return res.json({ 
+                success: true, 
+                customer_name: realName, 
+                vpa: upi_id 
             });
+
         } else {
-            return res.json({ success: false, message: "UPI ID Invalid ya Name fetch nahi hua" });
+            return res.json({ success: false, message: "Is number se koi UPI link nahi hai!" });
         }
 
     } catch (error) {
-        console.error("❌ RapidAPI Error:", error.response ? error.response.data : error.message);
-        return res.json({ success: false, message: "Bank se verify karne me fail hua!" });
+        const errorMsg = error.response ? JSON.stringify(error.response.data) : error.message;
+        console.error("❌ RapidAPI Error:", errorMsg);
+        return res.json({ success: false, message: `API Error: Server down hai` });
     }
 });
 
