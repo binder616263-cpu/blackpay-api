@@ -62,13 +62,14 @@ app.post('/api/wallet/send-otp', async (req, res) => {
         
         browser = await puppeteer.launch({ 
             headless: true, // 🔴 Cloud pe true hona zaroori hai
-            defaultViewport: null,
+            defaultViewport: { width: 1920, height: 1080 }, // 🔴 Force Desktop View on Cloud
             args: [
-                '--no-sandbox', // 🔴 Linux/Cloud server pe iske bina chrome nahi chalega
+                '--no-sandbox', 
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
                 '--disable-gpu',
-                '--single-process'
+                '--single-process',
+                '--window-size=1920,1080' // 🔴 Full HD screen
             ]
         });
         
@@ -152,69 +153,52 @@ app.post('/api/wallet/send-otp', async (req, res) => {
             await page.keyboard.press('Enter');
         }
 
-        // ================= FREECHARGE FLOW =================
+        // ================= FREECHARGE FLOW (UPDATED) =================
         else if (walletName.includes('freecharge')) {
             console.log("[+] Opening Freecharge homepage...");
             await page.goto('https://www.freecharge.in/', { waitUntil: 'networkidle2', timeout: 60000 });
-            await new Promise(r => setTimeout(r, 3000)); 
+            await new Promise(r => setTimeout(r, 4000)); 
 
-            const loginCoords = await page.evaluate(() => {
-                const els = Array.from(document.querySelectorAll('*'));
-                const loginBtn = els.find(e => e.innerText && e.innerText.trim() === 'Login' && e.getBoundingClientRect().width > 0);
-                if (loginBtn) {
-                    const rect = loginBtn.getBoundingClientRect();
-                    return { x: rect.x + (rect.width / 2), y: rect.y + (rect.height / 2) };
-                }
-                return null;
+            // 1. Direct Login Button Click karo
+            await page.evaluate(() => {
+                const btns = Array.from(document.querySelectorAll('a, button, span, div'));
+                const loginBtn = btns.find(e => e.innerText && e.innerText.trim().toLowerCase() === 'login');
+                if (loginBtn) loginBtn.click();
             });
 
-            if (loginCoords) {
-                await page.mouse.click(loginCoords.x, loginCoords.y);
-            } else {
-                await page.mouse.click(1250, 40); 
-            }
+            await new Promise(r => setTimeout(r, 4000)); // Popup khulne ka wait
 
-            await new Promise(r => setTimeout(r, 3000));
-
-            const inputCoords = await page.evaluate(() => {
+            // 2. Direct Input box dhoondh kar number paste karo (Bina Coordinate ke)
+            const typed = await page.evaluate((phoneNum) => {
                 const inputs = Array.from(document.querySelectorAll('input'));
                 const target = inputs.find(inp => {
                     let p = (inp.getAttribute('placeholder') || '').toLowerCase();
                     let t = (inp.getAttribute('type') || '').toLowerCase();
                     return (p.includes('mobile') || t === 'tel' || t === 'text') && inp.getBoundingClientRect().width > 0;
                 });
-                if (target) {
-                    const rect = target.getBoundingClientRect();
-                    return { x: rect.x + (rect.width / 2), y: rect.y + (rect.height / 2) };
-                }
-                return null;
-            });
 
-            if (inputCoords) {
-                await page.mouse.click(inputCoords.x, inputCoords.y, { clickCount: 3 });
-                await page.keyboard.press('Backspace');
-                await page.keyboard.type(phone, { delay: 100 }); 
-            } else {
-                return res.status(400).json({ success: false, message: "Freecharge popup input field coordinates not found." });
+                if (target) {
+                    target.focus();
+                    target.value = phoneNum;
+                    target.dispatchEvent(new Event('input', { bubbles: true }));
+                    target.dispatchEvent(new Event('change', { bubbles: true }));
+                    return true;
+                }
+                return false;
+            }, phone);
+
+            if (!typed) {
+                return res.status(400).json({ success: false, message: "Freecharge popup input field not found on cloud screen." });
             }
 
             await new Promise(r => setTimeout(r, 1000));
 
-            const otpCoords = await page.evaluate(() => {
-                const els = Array.from(document.querySelectorAll('*'));
-                const btn = els.find(e => e.innerText && e.innerText.toUpperCase().includes('GET OTP') && e.getBoundingClientRect().width > 0);
-                if (btn) {
-                    const rect = btn.getBoundingClientRect();
-                    return { x: rect.x + (rect.width / 2), y: rect.y + (rect.height / 2) };
-                }
-                return null;
+            // 3. Get OTP par click karo
+            await page.evaluate(() => {
+                const els = Array.from(document.querySelectorAll('button, span, div, a'));
+                const btn = els.find(e => e.innerText && (e.innerText.toUpperCase().includes('OTP') || e.innerText.toUpperCase().includes('CONTINUE')));
+                if (btn) btn.click();
             });
-
-            if (otpCoords) {
-                await page.mouse.click(otpCoords.x, otpCoords.y);
-            } else {
-                await page.keyboard.press('Enter');
-            }
             
             console.log("[+] OTP request triggered successfully.");
         }
@@ -476,17 +460,14 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
                 }
                 finalUpi = await page.evaluate(() => {
     try {
-        // Safe check lagaya hai taaki null error na aaye
         if (!document || !document.documentElement) return "";
-        
         const htmlContent = document.documentElement.innerHTML || document.body.innerHTML || "";
         const regex = /[a-zA-Z0-9.\-_]{3,}@(paytm|paytmpty|pty|paytmqr)/i;
         const match = htmlContent.match(regex);
-        
         if (match) return match[0];
         return "";
     } catch (e) {
-        return ""; // Agar koi error aaya toh chupchap ignore kar dega
+        return ""; 
     }
 });
                 if (finalUpi) break;
@@ -538,14 +519,9 @@ app.post('/api/wallet/verify-utr', async (req, res) => {
         await new Promise(r => setTimeout(r, 4000));
         await dismissPopups(page);
 
-        // Advanced Search: Matches UTR, OR matches BOTH Amount & Last 4 Digits
         const isFound = await page.evaluate((searchUtr, searchAmt, searchLast4) => {
             const bodyText = document.body.innerText.replace(/\s+/g, '');
-            
-            // 1. Try exact UTR match
             let found = bodyText.includes(searchUtr);
-            
-            // 2. Try Amount + Last 4 digits match if UTR fails
             if (!found && searchAmt && searchLast4) {
                  if (bodyText.includes(searchAmt) && bodyText.includes(searchLast4)) {
                      found = true;
@@ -558,14 +534,12 @@ app.post('/api/wallet/verify-utr', async (req, res) => {
             console.log(`[✔] Match Found! Auto-Approving Order.`);
             res.json({ success: true, message: "Payment Verified Successfully!", utr: utr });
         } else {
-            // 🔴 If not found, DO NOT send error. Send success: false so App handles it silently (Pending).
             console.log(`[!] Not Found automatically. Pushing to Pending/Manual.`);
             res.json({ success: false, message: "Awaiting Manual Confirmation.", utr: utr });
         }
 
     } catch (error) {
         console.error("❌ Error verifying UTR:", error);
-        // Even on error, fallback to pending to avoid red screens
         res.json({ success: false, message: "Server busy, sent for manual review.", utr: utr });
     }
 });
