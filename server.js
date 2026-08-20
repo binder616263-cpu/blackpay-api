@@ -153,7 +153,7 @@ app.post('/api/wallet/send-otp', async (req, res) => {
             await page.keyboard.press('Enter');
         }
 
-        // ================= FREECHARGE FLOW (UPDATED) =================
+      // ================= FREECHARGE FLOW (ADVANCED IFRAME SCAN) =================
         else if (walletName.includes('freecharge')) {
             console.log("[+] Opening Freecharge homepage...");
             await page.goto('https://www.freecharge.in/', { waitUntil: 'networkidle2', timeout: 60000 });
@@ -166,41 +166,66 @@ app.post('/api/wallet/send-otp', async (req, res) => {
                 if (loginBtn) loginBtn.click();
             });
 
-            await new Promise(r => setTimeout(r, 4000)); // Popup khulne ka wait
+            await new Promise(r => setTimeout(r, 5000)); // Popup khulne ka wait
 
-            // 2. Direct Input box dhoondh kar number paste karo (Bina Coordinate ke)
-            const typed = await page.evaluate((phoneNum) => {
-                const inputs = Array.from(document.querySelectorAll('input'));
-                const target = inputs.find(inp => {
-                    let p = (inp.getAttribute('placeholder') || '').toLowerCase();
-                    let t = (inp.getAttribute('type') || '').toLowerCase();
-                    return (p.includes('mobile') || t === 'tel' || t === 'text') && inp.getBoundingClientRect().width > 0;
-                });
+            // 2. Search ALL frames (Iframes) for the mobile input box
+            let targetFrame = null;
+            let inputField = null;
 
-                if (target) {
-                    target.focus();
-                    target.value = phoneNum;
-                    target.dispatchEvent(new Event('input', { bubbles: true }));
-                    target.dispatchEvent(new Event('change', { bubbles: true }));
-                    return true;
+            for (let attempt = 0; attempt < 15; attempt++) {
+                for (let frame of page.frames()) {
+                    try {
+                        let inputs = await frame.$$('input:not([type="hidden"])');
+                        for (let el of inputs) {
+                            let box = await el.boundingBox();
+                            if (box && box.width > 0 && box.height > 0) {
+                                let type = await frame.evaluate(e => e.type, el);
+                                let placeholder = await frame.evaluate(e => e.placeholder || '', el).then(p => p.toLowerCase());
+                                // Mobile number wale dabbe ko pehchano
+                                if (type === 'tel' || type === 'number' || placeholder.includes('mobile') || placeholder.includes('phone')) {
+                                    inputField = el;
+                                    targetFrame = frame;
+                                    break;
+                                }
+                            }
+                        }
+                    } catch (e) {}
+                    if (inputField) break;
                 }
-                return false;
-            }, phone);
-
-            if (!typed) {
-                return res.status(400).json({ success: false, message: "Freecharge popup input field not found on cloud screen." });
+                if (inputField) break;
+                await new Promise(r => setTimeout(r, 1000));
             }
 
+            if (!inputField) {
+                return res.status(400).json({ success: false, message: "Freecharge popup input not found. (Iframe blocked)" });
+            }
+
+            console.log("[+] Found Freecharge input field in Iframe!");
+            await inputField.focus();
+            await inputField.click({ clickCount: 3 });
+            await inputField.press('Backspace');
+            await inputField.type(phone, { delay: 100 });
             await new Promise(r => setTimeout(r, 1000));
 
-            // 3. Get OTP par click karo
-            await page.evaluate(() => {
-                const els = Array.from(document.querySelectorAll('button, span, div, a'));
-                const btn = els.find(e => e.innerText && (e.innerText.toUpperCase().includes('OTP') || e.innerText.toUpperCase().includes('CONTINUE')));
-                if (btn) btn.click();
-            });
+            // 3. Get OTP Click (Usi iframe ke andar)
+            let otpClicked = false;
+            if (targetFrame) {
+                otpClicked = await targetFrame.evaluate(() => {
+                    const els = Array.from(document.querySelectorAll('button, span, div, a'));
+                    const btn = els.find(e => e.innerText && (e.innerText.toUpperCase().includes('OTP') || e.innerText.toUpperCase().includes('CONTINUE')));
+                    if (btn) {
+                        btn.click();
+                        return true;
+                    }
+                    return false;
+                });
+            }
+
+            if (!otpClicked) {
+                await page.keyboard.press('Enter');
+            }
             
-            console.log("[+] OTP request triggered successfully.");
+            console.log("[+] Freecharge OTP request triggered successfully.");
         }
 
         // ================= MOBIKWIK FLOW =================
