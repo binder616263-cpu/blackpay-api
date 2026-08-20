@@ -61,15 +61,17 @@ app.post('/api/wallet/send-otp', async (req, res) => {
         console.log(`\n[+] New Login Request -> Phone: ${phone} | Wallet: ${walletName.toUpperCase()}`);
         
         browser = await puppeteer.launch({ 
-            headless: true, // 🔴 Cloud pe true hona zaroori hai
-            defaultViewport: { width: 1920, height: 1080 }, // 🔴 Force Desktop View on Cloud
+            headless: true,
+            defaultViewport: { width: 1920, height: 1080 }, // 🔴 Force Desktop View
             args: [
                 '--no-sandbox', 
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
                 '--disable-gpu',
                 '--single-process',
-                '--window-size=1920,1080' // 🔴 Full HD screen
+                '--window-size=1920,1080',
+                '--disable-web-security', // 🔴 MASTER KEY: Iframe Block Todne Ke Liye
+                '--disable-features=IsolateOrigins,site-per-process' // 🔴 CROSS-ORIGIN IFRAME UNLOCK
             ]
         });
         
@@ -153,36 +155,38 @@ app.post('/api/wallet/send-otp', async (req, res) => {
             await page.keyboard.press('Enter');
         }
 
-      // ================= FREECHARGE FLOW (ADVANCED IFRAME SCAN) =================
+        // ================= FREECHARGE FLOW (ULTIMATE IFRAME UNLOCK) =================
         else if (walletName.includes('freecharge')) {
             console.log("[+] Opening Freecharge homepage...");
             await page.goto('https://www.freecharge.in/', { waitUntil: 'networkidle2', timeout: 60000 });
             await new Promise(r => setTimeout(r, 4000)); 
 
-            // 1. Direct Login Button Click karo
+            // 1. Aggressive Login Button Click
             await page.evaluate(() => {
                 const btns = Array.from(document.querySelectorAll('a, button, span, div'));
-                const loginBtn = btns.find(e => e.innerText && e.innerText.trim().toLowerCase() === 'login');
+                const loginBtn = btns.find(e => e.innerText && (e.innerText.trim().toLowerCase() === 'login' || e.innerText.trim().toLowerCase() === 'login/register'));
                 if (loginBtn) loginBtn.click();
             });
 
-            await new Promise(r => setTimeout(r, 5000)); // Popup khulne ka wait
+            await new Promise(r => setTimeout(r, 5000)); // Wait for popup
 
-            // 2. Search ALL frames (Iframes) for the mobile input box
+            // 2. Blind Typing Fallback (Agar freecharge ne input ko auto-focus kiya hoga toh direct type ho jayega)
+            await page.keyboard.type(phone, { delay: 100 });
+            await new Promise(r => setTimeout(r, 1000));
+
+            // 3. Deep Iframe Search (Ab Security disable karne se ghus payega)
             let targetFrame = null;
             let inputField = null;
 
-            for (let attempt = 0; attempt < 15; attempt++) {
+            for (let attempt = 0; attempt < 10; attempt++) {
                 for (let frame of page.frames()) {
                     try {
                         let inputs = await frame.$$('input:not([type="hidden"])');
                         for (let el of inputs) {
                             let box = await el.boundingBox();
                             if (box && box.width > 0 && box.height > 0) {
-                                let type = await frame.evaluate(e => e.type, el);
-                                let placeholder = await frame.evaluate(e => e.placeholder || '', el).then(p => p.toLowerCase());
-                                // Mobile number wale dabbe ko pehchano
-                                if (type === 'tel' || type === 'number' || placeholder.includes('mobile') || placeholder.includes('phone')) {
+                                let ph = await frame.evaluate(e => e.placeholder || '', el).then(p => p.toLowerCase());
+                                if (ph.includes('mobile') || ph.includes('phone') || ph.includes('number')) {
                                     inputField = el;
                                     targetFrame = frame;
                                     break;
@@ -196,35 +200,41 @@ app.post('/api/wallet/send-otp', async (req, res) => {
                 await new Promise(r => setTimeout(r, 1000));
             }
 
-            if (!inputField) {
-                return res.status(400).json({ success: false, message: "Freecharge popup input not found. (Iframe blocked)" });
+            if (inputField) {
+                console.log("[+] Visual Input Field Found! Double checking value...");
+                let val = await targetFrame.evaluate(e => e.value, inputField);
+                if (!val || val.length < 10) {
+                    await inputField.focus();
+                    await inputField.click({ clickCount: 3 });
+                    await inputField.press('Backspace');
+                    await inputField.type(phone, { delay: 100 });
+                }
+            } else {
+                console.log("[!] Input field visually hidden, relying on blind typing.");
             }
 
-            console.log("[+] Found Freecharge input field in Iframe!");
-            await inputField.focus();
-            await inputField.click({ clickCount: 3 });
-            await inputField.press('Backspace');
-            await inputField.type(phone, { delay: 100 });
             await new Promise(r => setTimeout(r, 1000));
 
-            // 3. Get OTP Click (Usi iframe ke andar)
+            // 4. Click Get OTP (Iframe ke andar dhoondhega ya fir Page ke andar)
             let otpClicked = false;
-            if (targetFrame) {
-                otpClicked = await targetFrame.evaluate(() => {
-                    const els = Array.from(document.querySelectorAll('button, span, div, a'));
-                    const btn = els.find(e => e.innerText && (e.innerText.toUpperCase().includes('OTP') || e.innerText.toUpperCase().includes('CONTINUE')));
-                    if (btn) {
-                        btn.click();
-                        return true;
-                    }
-                    return false;
-                });
-            }
+            const clickOtpBtn = async (f) => {
+                try {
+                    return await f.evaluate(() => {
+                        const els = Array.from(document.querySelectorAll('button, span, div, a'));
+                        const btn = els.find(e => e.innerText && (e.innerText.toUpperCase().includes('OTP') || e.innerText.toUpperCase().includes('CONTINUE')) && e.getBoundingClientRect().width > 0);
+                        if (btn) { btn.click(); return true; }
+                        return false;
+                    });
+                } catch(e) { return false; }
+            };
+
+            if (targetFrame) otpClicked = await clickOtpBtn(targetFrame);
+            if (!otpClicked) otpClicked = await clickOtpBtn(page);
 
             if (!otpClicked) {
-                await page.keyboard.press('Enter');
+                await page.keyboard.press('Enter'); // Final bypass
             }
-            
+
             console.log("[+] Freecharge OTP request triggered successfully.");
         }
 
