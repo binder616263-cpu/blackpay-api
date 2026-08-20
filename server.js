@@ -58,20 +58,10 @@ app.post('/api/wallet/send-otp', async (req, res) => {
 
         console.log(`\n[+] New Login Request -> Phone: ${phone} | Wallet: ${walletName.toUpperCase()}`);
         
-        browser = await puppeteer.launch({ 
-            headless: true,
-            defaultViewport: { width: 1920, height: 1080 },
-            args: [
-                '--no-sandbox', 
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage', // RAM Fix
-                '--disable-gpu',
-                '--no-zygote', // 🔴 RAM SAVER (Prevents Hanging)
-                // '--single-process', 🔴 REMOVED: Yahi server ko freeze kar raha tha!
-                '--window-size=1920,1080',
-                '--disable-web-security', 
-                '--disable-features=IsolateOrigins,site-per-process' 
-            ]
+        // 🔴 BROWSERLESS.IO SUPERCOMPUTER CONNECTED HERE 🔴
+        browser = await puppeteer.connect({ 
+            browserWSEndpoint: 'wss://chrome.browserless.io?token=2V6jGIUi9i2HHBN13c561fc98136daa73b9388455b558503a&--disable-web-security=true&--disable-features=IsolateOrigins,site-per-process',
+            defaultViewport: { width: 1920, height: 1080 }
         });
         
         page = await browser.newPage();
