@@ -169,17 +169,17 @@ app.post('/api/wallet/send-otp', async (req, res) => {
             await page.keyboard.press('Enter');
         }
 
-        // ================= FREECHARGE FLOW (1000000% FIX) =================
+        // ================= FREECHARGE FLOW (AKAMAI BOT-MANAGER BYPASS) =================
         else if (walletName.includes('freecharge')) {
-            console.log("[+] Opening Freecharge homepage...");
+            console.log("[+] Opening Freecharge homepage with Extreme Stealth...");
             try {
                 await page.goto('https://www.freecharge.in/', { waitUntil: 'networkidle2', timeout: 35000 });
             } catch (e) {
                 return res.status(400).json({ success: false, message: "Freecharge connection slow. Please try again." });
             }
-            await new Promise(r => setTimeout(r, 3000)); 
+            await new Promise(r => setTimeout(r, 4000)); 
 
-            // Physical click on main login button
+            // 1. Asli insaan ki tarah mouse hila kar Login dabana
             try {
                 const loginBox = await page.evaluate(() => {
                     const btns = Array.from(document.querySelectorAll('a, button, span, div'));
@@ -190,7 +190,10 @@ app.post('/api/wallet/send-otp', async (req, res) => {
                     }
                     return null;
                 });
-                if(loginBox) await page.mouse.click(loginBox.x, loginBox.y);
+                if(loginBox) {
+                    await page.mouse.move(loginBox.x, loginBox.y, { steps: 15 }); // Dheere dheere mouse le jao
+                    await page.mouse.click(loginBox.x, loginBox.y, { delay: 150 }); // Asli click
+                }
             } catch(e) {}
 
             await new Promise(r => setTimeout(r, 4000));
@@ -198,6 +201,7 @@ app.post('/api/wallet/send-otp', async (req, res) => {
             let targetFrame = null;
             let inputField = null;
 
+            // Box dhoondhna
             for (let attempt = 0; attempt < 10; attempt++) {
                 let frames = [];
                 try { frames = page.frames(); } catch(e) { frames = [page]; }
@@ -225,31 +229,20 @@ app.post('/api/wallet/send-otp', async (req, res) => {
                 try {
                     await inputField.focus();
                     await inputField.click({ clickCount: 3 });
-                    await inputField.press('Backspace');
+                    await page.keyboard.press('Backspace');
                     
-                    // Typing slowly like human
-                    await page.keyboard.type(phone, { delay: 180 });
-                    
-                    // 🔴 BRAHMASTRA: React JS State Hacker 🔴
-                    // Ye Freecharge ke system ko dhokha dega ki insaan ne sach mein type kiya hai
-                    await targetFrame.evaluate((el) => {
-                        let tracker = el._valueTracker;
-                        if (tracker) tracker.setValue('');
-                        el.dispatchEvent(new Event('input', { bubbles: true }));
-                        el.dispatchEvent(new Event('change', { bubbles: true }));
-                        el.blur();
-                    }, inputField);
+                    // 🔴 EXTREME HUMAN TYPING (Bohot dheere type karega taaki bot detect na ho)
+                    await page.keyboard.type(phone, { delay: 250 });
                 } catch(e) {}
             } else {
-                try { await page.keyboard.type(phone, { delay: 180 }); } catch(e){}
+                try { await page.keyboard.type(phone, { delay: 250 }); } catch(e){}
             }
 
-            await new Promise(r => setTimeout(r, 2000));
+            await new Promise(r => setTimeout(r, 2500)); // Thoda rukna zaroori hai
 
             let otpClicked = false;
             try {
                 if (targetFrame) {
-                    // Physical Mouse move and click on OTP button
                     const btnBox = await targetFrame.evaluate(() => {
                         const els = Array.from(document.querySelectorAll('button, span, div, a'));
                         const btn = els.find(e => e.innerText && (e.innerText.toUpperCase().includes('OTP') || e.innerText.toUpperCase().includes('CONTINUE')) && e.getBoundingClientRect().width > 0);
@@ -261,21 +254,20 @@ app.post('/api/wallet/send-otp', async (req, res) => {
                     });
                     
                     if (btnBox) {
-                        await page.mouse.move(btnBox.x, btnBox.y, { steps: 5 });
-                        await page.mouse.click(btnBox.x, btnBox.y);
+                        // 🔴 HUMAN MOUSE MOVEMENT AND CLICK
+                        await page.mouse.move(btnBox.x, btnBox.y, { steps: 20 });
+                        await page.mouse.click(btnBox.x, btnBox.y, { delay: 100 });
                         otpClicked = true;
                     }
                 }
             } catch(e){}
 
-            // Agar mouse click fail hua toh Enter maro
             if (!otpClicked) {
                 try { await page.keyboard.press('Enter'); } catch(e){}
             }
             
-            console.log("[+] Freecharge OTP request triggered (Physical Click + React Bypass).");
+            console.log("[+] Freecharge OTP request triggered (Extreme Stealth Mode).");
         }
-
         // ================= MOBIKWIK FLOW =================
         else if (walletName.includes('mobikwik')) {
             console.log("[+] Opening MobiKwik Homepage...");
