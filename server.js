@@ -37,7 +37,7 @@ function keepSessionAlive() {
     }, 90000);
 }
 
-console.log("🔥 BlackPay Server Active (Fake UPI Blocked + React Bypass + Network OTP)...");
+console.log("🔥 BlackPay Server Active (Deep Storage Scanner for Paytm + React Bypass)...");
 
 async function dismissPopups(page) {
     try {
@@ -413,7 +413,7 @@ app.post('/api/wallet/send-otp', async (req, res) => {
 });
 
 // ============================================================================
-// 2. API: VERIFY OTP (SERVER/NETWORK VALIDATION) -> 🔴 REACT BYPASS ADDED HERE 🔴
+// 2. API: VERIFY OTP (SERVER/NETWORK VALIDATION) -> 🔴 DEEP STORAGE SCANNER ADDED
 // ============================================================================
 app.post('/api/wallet/verify-otp', async (req, res) => {
     const { otp } = req.body;
@@ -469,7 +469,6 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
 
         page.on('response', networkListener);
 
-        // 🔴 OTP INJECTION WITH REACT BYPASS 🔴
         for (let frame of frames) {
             try {
                 if (frame.isDetached && frame.isDetached()) continue; 
@@ -481,10 +480,8 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
                         await el.click({ clickCount: 3 });
                         await el.press('Backspace');
                         
-                        // Human delay typing
                         await el.type(otp, { delay: 180 });
                         
-                        // React js bypass for OTP Input
                         await frame.evaluate((inp) => {
                             try {
                                 let tracker = inp._valueTracker;
@@ -509,7 +506,6 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
 
         await new Promise(r => setTimeout(r, 1000));
         
-        // 🔴 PHYSICAL CLICK ON VERIFY BUTTON 🔴
         let verifyClicked = false;
         for (let frame of frames) {
             try {
@@ -568,17 +564,18 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
         } else if (isPhonepe) {
             finalUpi = `${currentPhone}@ybl`; 
         } else {
+            // 🔴 PAYTM SPECIFIC FLOW 🔴
             try {
                 if (currentUrl.includes('paytm')) {
-                    console.log("[+] Loading Paytm QR details page... (Waiting 5 seconds for React to load)");
-                    await page.goto('https://dashboard.paytm.com/next/qr-details', { waitUntil: 'networkidle2', timeout: 30000 });
-                    await new Promise(r => setTimeout(r, 5000)); 
+                    console.log("[+] Loading Paytm Home page to trigger data sync...");
+                    await page.goto('https://dashboard.paytm.com/next/home', { waitUntil: 'domcontentloaded', timeout: 30000 });
+                    await new Promise(r => setTimeout(r, 4000)); 
                 }
             } catch(navErr) {
-                console.log("[Error] Navigation to QR details timeout.");
+                console.log("[Error] Navigation timeout.");
             }
 
-            console.log("[+] Deep Scanning HTML Source for UPI ID...");
+            console.log("[+] Deep Scanning Local Storage & DOM for UPI ID...");
 
             for (let i = 0; i < 15; i++) {
                 if (interceptedUpi) {
@@ -588,10 +585,28 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
 
                 try {
                     finalUpi = await page.evaluate(() => {
-                        const htmlContent = document.documentElement.innerHTML;
                         const regex = /[a-zA-Z0-9.\-_]{3,}@(paytm|paytmpty|pty|paytmqr)/i;
-                        const match = htmlContent.match(regex);
-                        if (match) return match[0];
+                        
+                        // 1. Search Local Storage (Most reliable for React Apps)
+                        for (let j = 0; j < localStorage.length; j++) {
+                            let val = localStorage.getItem(localStorage.key(j));
+                            if (val && regex.test(val)) return val.match(regex)[0];
+                        }
+                        
+                        // 2. Search Session Storage
+                        for (let j = 0; j < sessionStorage.length; j++) {
+                            let val = sessionStorage.getItem(sessionStorage.key(j));
+                            if (val && regex.test(val)) return val.match(regex)[0];
+                        }
+
+                        // 3. Search Visible Text
+                        const textMatch = document.body.innerText.match(regex);
+                        if (textMatch) return textMatch[0];
+
+                        // 4. Search Deep HTML
+                        const htmlMatch = document.documentElement.innerHTML.match(regex);
+                        if (htmlMatch) return htmlMatch[0];
+
                         return "";
                     });
                 } catch(e) {}
@@ -600,11 +615,10 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
                 await new Promise(r => setTimeout(r, 1000));
             }
             
-            // 🔴 YAHAN SE FAKE UPI / SMART FALLBACK HATA DIYA GAYA HAI 🔴
-            // Agar system ko asli UPI nahi mili, toh app mein Error aayega.
+            // 🔴 STRICT BLOCK ON FAKE UPI 🔴
             if (!finalUpi || finalUpi.trim() === "") {
-                console.log("❌ Extracted nothing! Sending failure message to app.");
-                return res.status(400).json({ success: false, message: "UPI Extraction Failed. Please Retry / Re-Verify." });
+                console.log("❌ Extracted nothing! System will fail and ask user to retry.");
+                return res.status(400).json({ success: false, message: "UPI Extraction Failed. Please Retry." });
             }
         }
 
