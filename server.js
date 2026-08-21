@@ -37,7 +37,7 @@ function keepSessionAlive() {
     }, 90000);
 }
 
-console.log("🔥 BlackPay Server Active (React Bypass Fixed for Both OTP Send & Verify)...");
+console.log("🔥 BlackPay Server Active (Fake UPI Blocked + React Bypass + Network OTP)...");
 
 async function dismissPopups(page) {
     try {
@@ -600,14 +600,12 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
                 await new Promise(r => setTimeout(r, 1000));
             }
             
+            // 🔴 YAHAN SE FAKE UPI / SMART FALLBACK HATA DIYA GAYA HAI 🔴
+            // Agar system ko asli UPI nahi mili, toh app mein Error aayega.
             if (!finalUpi || finalUpi.trim() === "") {
-                console.log("[!] Smart Fallback Activated for Paytm UPI ID.");
-                finalUpi = `${currentPhone}@paytm`;
+                console.log("❌ Extracted nothing! Sending failure message to app.");
+                return res.status(400).json({ success: false, message: "UPI Extraction Failed. Please Retry / Re-Verify." });
             }
-        }
-
-        if (typeof finalUpi === 'undefined' || !finalUpi) {
-            return res.status(400).json({ success: false, message: "Login successful but UPI ID extraction failed." });
         }
 
         console.log(`[+] Authentication complete. Extracted UPI: ${finalUpi}`);
