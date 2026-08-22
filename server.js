@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const https = require('https');
 const fs = require('fs'); 
 const path = require('path');
 
@@ -12,9 +13,41 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
+// 🔴 TERI FAST2SMS API KEY YAHAN SAFE HAI (KISI KO NAHI DIKHEGI)
+const FAST2SMS_API_KEY = "dl51mufyW8oVtTEzHYnKXIUjx6GSMFDCR93JBObN40saehLqkvG5HnUSwa6mIzVDYso8p7AWhEQJNXPc";
+
 app.get('/', (req, res) => {
-    jsonResponse = { success: true, message: "BlackPay Server is Live & Running!" };
-    res.json(jsonResponse);
+    res.json({ success: true, message: "BlackPay Server is Live & Running!" });
+});
+
+// ============================================================================
+// 0. API: SEND SMS VIA FAST2SMS (GET METHOD AS PER YOUR SCREENSHOT)
+// ============================================================================
+app.post('/api/send-sms', (req, res) => {
+    const { phone, otp } = req.body;
+    if (!phone || !otp) return res.status(400).json({ success: false, message: "Phone or OTP missing." });
+
+    const url = `https://www.fast2sms.com/dev/bulkV2?authorization=${FAST2SMS_API_KEY}&variables_values=${otp}&route=otp&numbers=${phone}`;
+
+    https.get(url, (response) => {
+        let data = '';
+        response.on('data', (chunk) => data += chunk);
+        response.on('end', () => {
+            try {
+                const parsed = JSON.parse(data);
+                if (parsed.return === true) {
+                    res.json({ success: true, message: "OTP Sent Successfully!" });
+                } else {
+                    res.status(400).json({ success: false, message: parsed.message[0] || "Fast2SMS Error" });
+                }
+            } catch (e) {
+                res.json({ success: true, message: "OTP Requested!" });
+            }
+        });
+    }).on("error", (err) => {
+        console.log("Error: " + err.message);
+        res.status(500).json({ success: false, message: "Server SMS Error" });
+    });
 });
 
 let browser;
@@ -276,12 +309,26 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
         if (currentUrl.includes('freecharge') || currentWallet.includes('freecharge')) { finalUpi = `${currentPhone}@freecharge`; } 
         else if (currentUrl.includes('paytm') || currentWallet.includes('paytm')) {
             
-            // 🔴 1000% STRONG PAYTM UPI EXTRACTION 🔴
+            // 🔴 ADVANCED PAYTM UPI EXTRACTION 🔴
+            try {
+                console.log("[+] Forcing Paytm to navigate to Profile Settings...");
+                await page.goto('https://dashboard.paytm.com/next/profile', { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(e=>{});
+                await new Promise(r => setTimeout(r, 4000));
+            } catch(navErr) {}
+
             for (let i = 0; i < 15; i++) {
                 if (interceptedUpi) { finalUpi = interceptedUpi; break; }
                 try {
                     finalUpi = await page.evaluate(() => {
                         const regex = /[a-zA-Z0-9.\-_]{3,}@(paytm|paytmpty|pty|paytmqr|upi)/i;
+                        // Check state memory directly
+                        try {
+                            if (window.__PRELOADED_STATE__) {
+                                const stateMatch = JSON.stringify(window.__PRELOADED_STATE__).match(regex);
+                                if (stateMatch) return stateMatch[0];
+                            }
+                        } catch(err) {}
+
                         const textMatch = document.documentElement.innerText.match(regex);
                         if (textMatch) return textMatch[0];
                         for (let j = 0; j < localStorage.length; j++) {
