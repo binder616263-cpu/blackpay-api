@@ -1,188 +1,86 @@
 const express = require('express');
 const cors = require('cors');
-
-// ANTI-CAPTCHA & STEALTH
-const puppeteer = require('puppeteer-extra');
-const StealthPlugin = require('puppeteer-extra-plugin-stealth');
-puppeteer.use(StealthPlugin());
+const axios = require('axios');
 
 const app = express();
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(cors());
 
-console.log("🔥 UONO-HUB MASTER SERVER ACTIVE (HYPER-OPTIMIZED) 🔥");
+const FAST2SMS_API_KEY = "dl51mufyW8oVtTEzHYnKXIUjx6GSMFDCR93JBObN40saehLqkvG5HnUSwa6mIzVDYso8p7AWhEQJNXPc";
 
-// Global State
-let browser;
-let page;
-let currentPhone = "";
-let currentWallet = "";
-let interceptedUpi = "";
-
-// ============================================================================
-// 1. HYPER-FAST SEND OTP API (Blocks Images/CSS for 2-Second Loading)
-// ============================================================================
-app.post('/api/wallet/send-otp', async (req, res) => {
-    const { phone, password, walletType } = req.body; 
-
-    if (!phone || phone.length !== 10) return res.status(400).json({ success: false, message: "Invalid number!" });
-    if (browser) { try { await browser.close(); } catch(e) {} browser = null; }
-
-    try {
-        currentPhone = phone; 
-        currentWallet = walletType ? walletType.toLowerCase().trim() : "paytm";
-        interceptedUpi = ""; 
-        console.log(`\n[+] [UONO-HUB] Fast OTP Request -> Phone: ${phone} | Wallet: ${currentWallet.toUpperCase()}`);
-        
-        browser = await puppeteer.launch({ 
-            headless: true, 
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
-        });
-        
-        page = await browser.newPage();
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-
-        // 🚀 SUPER-SPEED HACK: BLOCK IMAGES, CSS, AND FONTS
-        await page.setRequestInterception(true);
-        page.on('request', (req) => {
-            if (['image', 'stylesheet', 'font', 'media'].includes(req.resourceType())) {
-                req.abort(); // Paytm ka saara kachra block, sirf main form load hoga
-            } else {
-                req.continue();
-            }
-        });
-
-        // 🚀 SMART SNIFFER (To catch UPI in background)
-        page.on('response', async (response) => {
-            if (response.request().resourceType() === 'xhr' || response.request().resourceType() === 'fetch') {
-                try {
-                    const text = await response.text();
-                    const upiRegex = /[a-zA-Z0-9.\-_]{3,}@(pty|paytmpty|paytm|paytmqr|freecharge|ikwik|ybl|axl|upi)/i;
-                    const match = text.match(upiRegex);
-                    if (match && !interceptedUpi) { 
-                        interceptedUpi = match[0]; 
-                        console.log(`[🚀 SNIFFER CAUGHT UPI]: ${interceptedUpi}`); 
-                    }
-                } catch(e) {}
-            }
-        });
-
-        if (currentWallet.includes('paytm')) {
-            // domcontentloaded means it won't wait for the network to be idle. Instant load.
-            await page.goto('https://dashboard.paytm.com/login/', { waitUntil: 'domcontentloaded', timeout: 30000 });
-            
-            let inputField = await page.waitForSelector('input[type="tel"], input[type="text"]:not([type="hidden"])', { timeout: 10000 });
-            
-            if (!inputField) return res.status(400).json({ success: false, message: "Server very slow." });
-
-            await inputField.focus(); 
-            await inputField.click({ clickCount: 3 }); 
-            await inputField.press('Backspace');       
-            await inputField.type(phone, { delay: 30 }); // Super fast typing
-            await page.keyboard.press('Enter');
-
-            // If business password is required
-            if (password) {
-                let passField = await page.waitForSelector('input[type="password"]', { timeout: 5000 }).catch(()=>null);
-                if (passField) {
-                    await passField.focus(); 
-                    await passField.type(password, { delay: 30 });
-                }
-            }
-            await page.keyboard.press('Enter');
-        } 
-        else if (currentWallet.includes('freecharge')) {
-            await page.goto('https://www.freecharge.in/', { waitUntil: 'domcontentloaded' });
-            await page.evaluate(() => {
-                const loginBtn = Array.from(document.querySelectorAll('a, button, div, span')).find(b => b.innerText && b.innerText.trim().toLowerCase().includes('login'));
-                if (loginBtn) loginBtn.click();
-            });
-            await new Promise(r => setTimeout(r, 1000));
-            await page.keyboard.type(phone, { delay: 30 });
-            await page.keyboard.press('Enter');
-            await new Promise(r => setTimeout(r, 1000));
-            await page.evaluate(() => {
-                const otpBtn = Array.from(document.querySelectorAll('button, span')).find(b => b.innerText && b.innerText.toUpperCase().includes('GET OTP'));
-                if (otpBtn) otpBtn.click();
-            });
-        } 
-        else {
-            // PhonePe / Mobikwik
-            let url = currentWallet.includes('phonepe') ? 'https://business.phonepe.com/login' : 'https://www.mobikwik.com/';
-            await page.goto(url, { waitUntil: 'domcontentloaded' });
-            await new Promise(r => setTimeout(r, 2000));
-            await page.keyboard.type(phone, { delay: 30 });
-            await page.keyboard.press('Enter');
-        }
-
-        console.log(`[✔] OTP Sent to ${phone} successfully in record time!`);
-        res.json({ success: true, message: `OTP request sent for ${phone}` });
-
-    } catch (error) {
-        console.error(`❌ OTP Error:`, error.message);
-        res.status(500).json({ success: false, message: "Network slow. Try again." });
-    }
+app.get('/', (req, res) => {
+    res.json({ success: true, message: "BlackPay Uono-Hub Core Server is Live!" });
 });
 
-// ============================================================================
-// 2. HYPER-FAST VERIFY OTP & EXTRACT UPI
-// ============================================================================
-app.post('/api/wallet/verify-otp', async (req, res) => {
-    const { otp, phone } = req.body; 
-    if (!otp) return res.status(400).json({ success: false, message: "OTP missing." });
-    if (!page) return res.status(400).json({ success: false, message: "Session expired. Relink." });
+// ==========================================
+// 1. UONO HUB: ACCOUNTS & RECEIVABLES (ar module)
+// ==========================================
+app.get('/next/micro/ar/all-customers', (req, res) => {
+    res.json({ success: true, module: "AR Receivables", data: [] });
+});
 
+app.post('/next/micro/ar/credit-notes/create', (req, res) => {
+    res.json({ success: true, message: "Credit Note Created Successfully" });
+});
+
+// ==========================================
+// 2. UONO HUB: PAYMENTS & COMS (coms module)
+// ==========================================
+app.get('/next/micro/coms/contacts', (req, res) => {
+    res.json({ success: true, module: "Contacts List", contacts: [] });
+});
+
+app.get('/next/micro/coms/payouts-reports', (req, res) => {
+    res.json({ success: true, module: "Payouts Reports", reports: [] });
+});
+
+// ==========================================
+// 3. UONO HUB: ACCOUNTS PAYABLE (ap module)
+// ==========================================
+app.get('/next/micro/ap/expenses', (req, res) => {
+    res.json({ success: true, module: "AP Expenses", expenses: [] });
+});
+
+app.post('/next/micro/ap/vendor-invoices/add-invoice', (req, res) => {
+    res.json({ success: true, message: "Vendor Invoice Added" });
+});
+
+// ==========================================
+// 4. UONO HUB: APPROVALS & CA (ca module)
+// ==========================================
+app.get('/next/micro/ca/approvals', (req, res) => {
+    res.json({ success: true, module: "Custom Approvals", pending: [] });
+});
+
+// ==========================================
+// 5. UONO HUB: DISBURSAL & WALLET (disbursal module)
+// ==========================================
+app.get('/next/micro/disbursal/disbursal', (req, res) => {
+    res.json({ success: true, module: "Disbursal Hub Active", balance: 0.00 });
+});
+
+// FAST SMS GATEWAY ROUTE
+app.post('/api/send-sms', async (req, res) => {
+    const { phone, otp } = req.body;
+    if (!phone || !otp) return res.status(400).json({ success: false, message: "Missing data." });
+    
+    const msg = encodeURIComponent(`Your Verification Code is ${otp} [id:ufrgjfruafhs]`);
+    const url = `https://www.fast2sms.com/dev/bulkV2?authorization=${FAST2SMS_API_KEY}&route=q&message=${msg}&language=english&flash=0&numbers=${phone}`;
+    
     try {
-        console.log(`[+] [UONO-HUB] Injecting OTP...`);
-        
-        await page.keyboard.type(otp, { delay: 30 }); // Type fast
-        await page.keyboard.press('Enter');
-        
-        // Wait max 5 seconds for sniffer to catch it
-        for(let i=0; i<5; i++) {
-            if(interceptedUpi) break;
-            await new Promise(r => setTimeout(r, 1000));
-        }
-
-        let finalUpi = interceptedUpi;
-
-        // Force Extract if sniffer missed it
-        if (!finalUpi && currentWallet.includes('paytm')) {
-            console.log("[+] Forcing Paytm Dashboard API Hit...");
-            try { 
-                await page.goto('https://dashboard.paytm.com/api/v4/qrcode/fetch/?pageNo=1&pageSize=100', { waitUntil: 'domcontentloaded', timeout: 5000 }); 
-                finalUpi = await page.evaluate(() => {
-                    const match = document.body.innerText.match(/[a-zA-Z0-9.\-_]{3,}@(pty|paytmpty|paytm|paytmqr|upi)/i);
-                    return match ? match[0] : "";
-                });
-            } catch(e){}
-        }
-
-        if (browser) { try { await browser.close(); } catch(e){} browser = null; }
-
-        if (!finalUpi && !currentWallet.includes('paytm')) {
-            let suffix = currentWallet.includes('freecharge') ? 'freecharge' : (currentWallet.includes('mobikwik') ? 'ikwik' : 'ybl');
-            finalUpi = `${phone}@${suffix}`;
-        }
-
-        if (finalUpi) {
-            console.log(`[✔] Account Linked: ${finalUpi}`);
-            return res.json({ success: true, message: "Account Successfully Bound!", upi_id: finalUpi, mobile: phone });
+        const response = await axios.get(url);
+        if (response.data.return === true) {
+            res.json({ success: true, message: "OTP Sent Successfully!" });
         } else {
-            return res.status(400).json({ success: false, message: "Invalid OTP or Account Incomplete." });
+            res.status(400).json({ success: false, message: "SMS Error" });
         }
-    } catch (error) { 
-        if (browser) { try { await browser.close(); } catch(e){} browser = null; }
-        res.status(500).json({ success: false, message: "Verification Failed." }); 
+    } catch (e) {
+        res.status(500).json({ success: false, message: "Server SMS Error" });
     }
-});
-
-// ============================================================================
-// 3. SMART UTR VERIFIER (Always returns pending so App doesn't show Red error)
-// ============================================================================
-app.post('/api/wallet/verify-utr', async (req, res) => {
-    res.json({ success: false, message: "Awaiting Manual Confirmation.", utr: req.body.utr });
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, '0.0.0.0', () => { console.log(`🚀 UONO-HUB Master Server is Running!`); });
+app.listen(PORT, '0.0.0.0', () => { 
+    console.log(`🚀 BlackPay Uono-Hub Backend Running on Port ${PORT}`); 
+});
