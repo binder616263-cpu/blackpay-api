@@ -15,10 +15,10 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cors());
 
-// 🔴 FAST2SMS API KEY
+// 🔴 TERI FAST2SMS API KEY
 const FAST2SMS_API_KEY = "dl51mufyW8oVtTEzHYnKXIUjx6GSMFDCR93JBObN40saehLqkvG5HnUSwa6mIzVDYso8p7AWhEQJNXPc";
 
-// 🔴 PAYTM MASTER AUTHORIZATION TOKEN
+// 🔴 TERA PAYTM MASTER AUTHORIZATION TOKEN
 const PAYTM_AUTH_TOKEN = "Basic cGF5dG0tdW1wMjpsdDRJMUZLaVZGRndjTk5ScmxwS05pNW1LMk85TFQxdg==";
 
 let browser;
@@ -95,7 +95,7 @@ app.post('/api/wallet/send-otp', async (req, res) => {
                 return res.json({ success: true, message: "OTP sent successfully via Paytm!" });
             }
         } catch (apiErr) {
-            console.log(`[!] Direct API restricted by Akamai/WAF. Switching to Stealth Browser...`);
+            console.log(`[!] Direct API restricted by Akamai. Switching to Stealth Browser...`);
         }
 
         // STEP B: Fallback to Stealth Puppeteer if API gets blocked
@@ -162,7 +162,6 @@ app.post('/api/wallet/send-otp', async (req, res) => {
             return res.status(500).json({ success: false, message: "Paytm server busy. Please try again in 1 minute." });
         }
     } else {
-        // Other Wallets
         res.json({ success: true, message: `OTP request processed for ${phone}` });
     }
 });
@@ -205,7 +204,6 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
             }
         }
 
-        // Puppeteer Verification
         if (page) {
             let frames = [page, ...page.frames()];
             for (let frame of frames) {
