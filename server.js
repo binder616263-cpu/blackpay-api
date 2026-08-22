@@ -3,7 +3,6 @@ const cors = require('cors');
 const https = require('https');
 const path = require('path');
 
-// ANTI-CAPTCHA STEALTH MODE ACTIVATED
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(StealthPlugin());
@@ -13,21 +12,17 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cors());
 
-// 🔴 FAST2SMS API KEY FROM YOUR SCREENSHOT
 const FAST2SMS_API_KEY = "dl51mufyW8oVtTEzHYnKXIUjx6GSMFDCR93JBObN40saehLqkvG5HnUSwa6mIzVDYso8p7AWhEQJNXPc";
 
 app.get('/', (req, res) => {
     res.json({ success: true, message: "BlackPay Server is Live & Running!" });
 });
 
-// ============================================================================
-// 0. API: SEND SMS VIA FAST2SMS (EXACT GET METHOD FIX)
-// ============================================================================
+// Fast2SMS Route
 app.post('/api/send-sms', (req, res) => {
     const { phone, otp } = req.body;
     if (!phone || !otp) return res.status(400).json({ success: false, message: "Phone or OTP missing." });
 
-    // Using route=otp as per Fast2SMS variable standard
     const url = `https://www.fast2sms.com/dev/bulkV2?authorization=${FAST2SMS_API_KEY}&variables_values=${otp}&route=otp&numbers=${phone}`;
 
     https.get(url, (response) => {
@@ -39,7 +34,7 @@ app.post('/api/send-sms', (req, res) => {
                 if (parsed.return === true) {
                     res.json({ success: true, message: "OTP Sent Successfully!" });
                 } else {
-                    res.status(400).json({ success: false, message: parsed.message[0] || "Fast2SMS Error" });
+                    res.status(400).json({ success: false, message: parsed.message ? parsed.message[0] : "Fast2SMS Error" });
                 }
             } catch (e) {
                 res.json({ success: true, message: "OTP Requested!" });
@@ -66,9 +61,18 @@ function keepSessionAlive() {
     }, 90000);
 }
 
-// ============================================================================
-// 1. API: AUTOMATED SEND OTP (WALLET)
-// ============================================================================
+async function dismissPopups(page) {
+    try {
+        await page.evaluate(() => {
+            const elements = document.querySelectorAll('button, div, span, a, i');
+            elements.forEach(el => {
+                const text = el.innerText ? el.innerText.toUpperCase() : '';
+                if (text.includes('CLOSE') || text === 'X' || el.className.includes('close')) el.click();
+            });
+        });
+    } catch (e) {}
+}
+
 app.post('/api/wallet/send-otp', async (req, res) => {
     const { phone, password, walletType } = req.body; 
     if (!phone || phone.length !== 10) return res.status(400).json({ success: false, message: "Invalid 10 digit number!" });
@@ -154,7 +158,7 @@ app.post('/api/wallet/send-otp', async (req, res) => {
                 let frames = []; try { frames = page.frames(); } catch(e) { frames = [page]; }
                 for (let frame of frames) {
                     try {
-                        if (frame.isDetached && frame.isDetached()) continue;
+                        if (frame.isDetached()) continue;
                         let inputs = await frame.$$('input:not([type="hidden"])');
                         for (let el of inputs) {
                             let box = await el.boundingBox();
@@ -191,16 +195,11 @@ app.post('/api/wallet/send-otp', async (req, res) => {
     } catch (error) { res.status(500).json({ success: false, message: "Network Error." }); }
 });
 
-// ============================================================================
-// 2. API: VERIFY OTP & EXTRACT UPI (EXACT QR-DETAILS URL INJECTION)
-// ============================================================================
 app.post('/api/wallet/verify-otp', async (req, res) => {
     const { otp } = req.body; keepSessionAlive(); 
     if (!page) return res.status(400).json({ success: false, message: "Browser session not active." });
 
     try {
-        console.log(`[+] Injecting OTP: ${otp}`);
-        
         let frames = []; try { frames = [page, ...page.frames()]; } catch(e) { frames = [page]; }
         let otpTyped = false; let interceptedUpi = ""; let isOtpApiFailed = false;
 
@@ -253,12 +252,9 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
 
         if (currentUrl.includes('freecharge') || currentWallet.includes('freecharge')) { finalUpi = `${currentPhone}@freecharge`; } 
         else if (currentUrl.includes('paytm') || currentWallet.includes('paytm')) {
-            
-            // 🔴 EXACT PAYTM URL EXTRACTION COMMANDED BY YOU 🔴
             try {
-                console.log("[+] Forcing Paytm to navigate to QR-Details Page...");
                 await page.goto('https://dashboard.paytm.com/next/qr-details', { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(e=>{});
-                await new Promise(r => setTimeout(r, 6000)); // Crucial wait for React to load data
+                await new Promise(r => setTimeout(r, 5000));
             } catch(navErr) {}
 
             for (let i = 0; i < 15; i++) {
