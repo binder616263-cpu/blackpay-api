@@ -100,7 +100,7 @@ app.post('/api/wallet/send-otp', async (req, res) => {
 // 2. API: VERIFY OTP & EXTRACT UPI (API BASED)
 // ============================================================================
 app.post('/api/wallet/verify-otp', async (req, res) => {
-    const { otp, phone } = req.body; // Flutter se phone number bhi bhejna padega (code updated in flutter below)
+    const { otp, phone } = req.body; 
     if (!otp) return res.status(400).json({ success: false, message: "OTP missing." });
 
     const sessionData = globalState[phone] || {};
