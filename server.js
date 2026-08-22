@@ -37,7 +37,7 @@ function keepSessionAlive() {
     }, 90000);
 }
 
-console.log("🔥 BlackPay Server Active (Freecharge & Paytm Biz God Mode)...");
+console.log("🔥 BlackPay Server Active (Freecharge Verify Crash Fixed)...");
 
 async function dismissPopups(page) {
     try {
@@ -230,10 +230,8 @@ app.post('/api/wallet/send-otp', async (req, res) => {
                     await inputField.click({ clickCount: 3 });
                     await inputField.press('Backspace');
                     
-                    // Physical Human Typing
                     await page.keyboard.type(phone, { delay: 200 });
                     
-                    // React State Bypass
                     await targetFrame.evaluate((el) => {
                         let tracker = el._valueTracker;
                         if (tracker) tracker.setValue('');
@@ -313,7 +311,7 @@ app.post('/api/wallet/send-otp', async (req, res) => {
 });
 
 // ============================================================================
-// 2. API: VERIFY OTP & EXTRACT UPI (HARDCORE SCANNER)
+// 2. API: VERIFY OTP & EXTRACT UPI (CRASH-PROOF)
 // ============================================================================
 app.post('/api/wallet/verify-otp', async (req, res) => {
     const { otp } = req.body;
@@ -346,7 +344,6 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
                     const match = text.match(upiRegex);
                     if (match && !interceptedUpi) {
                         interceptedUpi = match[0];
-                        console.log(`[+] API Sniffed UPI ID: ${interceptedUpi}`);
                     }
 
                     if (url.includes('verify') || url.includes('login') || url.includes('auth') || url.includes('otp')) {
@@ -354,11 +351,8 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
                             isOtpApiFailed = true;
                         } else {
                             const textLower = text.toLowerCase();
-                            if (textLower.includes('"success":false') || 
-                                textLower.includes('invalid otp') || 
-                                textLower.includes('incorrect otp') || 
-                                textLower.includes('wrong otp') ||
-                                textLower.includes('invalid verification')) {
+                            // Freecharge returns true success, so we must not falsely trigger this
+                            if (textLower.includes('"success":false') || textLower.includes('invalid otp') || textLower.includes('incorrect otp') || textLower.includes('wrong otp')) {
                                 isOtpApiFailed = true;
                             }
                         }
@@ -369,78 +363,90 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
 
         page.on('response', networkListener);
 
-        for (let frame of frames) {
-            try {
-                if (frame.isDetached && frame.isDetached()) continue; 
-                let inputs = await frame.$$('input:not([type="hidden"])');
-                for (let el of inputs) {
-                    let box = await el.boundingBox();
-                    if (box && box.width > 0 && box.height > 0) {
-                        await el.focus();
-                        await el.click({ clickCount: 3 });
-                        await el.press('Backspace');
-                        
-                        await el.type(otp, { delay: 180 }); // Human typing
-                        
-                        await frame.evaluate((inp) => {
-                            try {
-                                let tracker = inp._valueTracker;
-                                if (tracker) tracker.setValue('');
-                                inp.dispatchEvent(new Event('input', { bubbles: true }));
-                                inp.dispatchEvent(new Event('change', { bubbles: true }));
-                                inp.blur();
-                            } catch(err) {}
-                        }, el);
+        // 🔴 SAFE OTP TYPING
+        try {
+            for (let frame of frames) {
+                try {
+                    if (frame.isDetached && frame.isDetached()) continue; 
+                    let inputs = await frame.$$('input:not([type="hidden"])');
+                    for (let el of inputs) {
+                        let box = await el.boundingBox();
+                        if (box && box.width > 0 && box.height > 0) {
+                            await el.focus();
+                            await el.click({ clickCount: 3 });
+                            await el.press('Backspace');
+                            await el.type(otp, { delay: 150 }); 
+                            
+                            await frame.evaluate((inp) => {
+                                try {
+                                    let tracker = inp._valueTracker;
+                                    if (tracker) tracker.setValue('');
+                                    inp.dispatchEvent(new Event('input', { bubbles: true }));
+                                    inp.dispatchEvent(new Event('change', { bubbles: true }));
+                                    inp.blur();
+                                } catch(err) {}
+                            }, el);
 
-                        otpTyped = true;
-                        break;
+                            otpTyped = true;
+                            break;
+                        }
                     }
-                }
-            } catch (e) {}
-            if (otpTyped) break;
-        }
+                } catch (e) {}
+                if (otpTyped) break;
+            }
+        } catch(e) { console.log("Typing safe catch"); }
 
         if (!otpTyped) {
-            try { await page.keyboard.type(otp, { delay: 180 }); } catch(e){}
+            try { await page.keyboard.type(otp, { delay: 150 }); } catch(e){}
         }
 
         await new Promise(r => setTimeout(r, 1000));
         
-        let verifyClicked = false;
-        for (let frame of frames) {
-            try {
-                if (frame.isDetached && frame.isDetached()) continue;
-                const btnBox = await frame.evaluate(() => {
-                    const els = Array.from(document.querySelectorAll('button, span, div, a'));
-                    const btn = els.find(e => e.innerText && (
-                        e.innerText.toUpperCase().includes('VERIFY') || 
-                        e.innerText.toUpperCase().includes('SUBMIT') || 
-                        e.innerText.toUpperCase().includes('CONFIRM') || 
-                        e.innerText.toUpperCase() === 'OK' ||
-                        e.innerText.toUpperCase().includes('PROCEED')
-                    ) && e.getBoundingClientRect().width > 0);
-                    if (btn) {
-                        const rect = btn.getBoundingClientRect();
-                        return { x: rect.x + rect.width/2, y: rect.y + rect.height/2 };
+        // 🔴 SAFE CLICK / ENTER (Ignores Freecharge Auto-Submit Crash)
+        try {
+            let verifyClicked = false;
+            for (let frame of frames) {
+                try {
+                    if (frame.isDetached && frame.isDetached()) continue;
+                    const btnBox = await frame.evaluate(() => {
+                        const els = Array.from(document.querySelectorAll('button, span, div, a'));
+                        const btn = els.find(e => e.innerText && (
+                            e.innerText.toUpperCase().includes('VERIFY') || 
+                            e.innerText.toUpperCase().includes('SUBMIT') || 
+                            e.innerText.toUpperCase().includes('CONFIRM') || 
+                            e.innerText.toUpperCase() === 'OK' ||
+                            e.innerText.toUpperCase().includes('PROCEED')
+                        ) && e.getBoundingClientRect().width > 0);
+                        if (btn) {
+                            const rect = btn.getBoundingClientRect();
+                            return { x: rect.x + rect.width/2, y: rect.y + rect.height/2 };
+                        }
+                        return null;
+                    });
+                    
+                    if (btnBox) {
+                        await page.mouse.move(btnBox.x, btnBox.y, { steps: 5 });
+                        await page.mouse.click(btnBox.x, btnBox.y, { delay: 50 });
+                        verifyClicked = true;
+                        break;
                     }
-                    return null;
-                });
-                
-                if (btnBox) {
-                    await page.mouse.move(btnBox.x, btnBox.y, { steps: 10 });
-                    await page.mouse.click(btnBox.x, btnBox.y, { delay: 100 });
-                    verifyClicked = true;
-                    break;
-                }
-            } catch(e){}
-        }
+                } catch(e){}
+            }
 
-        if (!verifyClicked) {
-            try { await page.keyboard.press('Enter'); } catch(e){}
-        }
+            if (!verifyClicked) {
+                await page.keyboard.press('Enter');
+            }
+        } catch(e) {}
 
-        console.log("[+] Awaiting API verification (Wait increased to ensure Dashboard loads)...");
-        await new Promise(r => setTimeout(r, 6000)); // 🔴 Give login time to process completely
+        console.log("[+] Awaiting Dashboard Loading...");
+        
+        // 🔴 CRASH PREVENTER: Waits safely for page navigation to finish
+        try {
+            await page.waitForNavigation({ timeout: 5000, waitUntil: 'domcontentloaded' });
+        } catch(e) {
+            await new Promise(r => setTimeout(r, 4000)); // Fallback wait
+        }
+        
         await dismissPopups(page);
 
         if (isOtpApiFailed) {
@@ -457,48 +463,33 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
         if (currentUrl.includes('freecharge') || currentWallet.includes('freecharge')) {
             finalUpi = `${currentPhone}@freecharge`;
         } 
-        
-        // 🔴 PAYTM / PAYTM BUSINESS FLOW (EXTREME EXTRACTION) 🔴
+        // 🔴 PAYTM / PAYTM BUSINESS FLOW 🔴
         else if (currentUrl.includes('paytm') || currentWallet.includes('paytm')) {
             try {
                 console.log("[+] Forcing Paytm to navigate to Profile Settings...");
-                // Force go to profile settings where UPI is guaranteed to load into memory
                 await page.goto('https://dashboard.paytm.com/next/profile', { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(e=>{});
-                await new Promise(r => setTimeout(r, 6000)); // Let React load profile data
+                await new Promise(r => setTimeout(r, 5000));
             } catch(navErr) {}
 
             console.log("[+] Deep Scanning Memory (Local Storage, Session Storage & DOM) for UPI ID...");
 
             for (let i = 0; i < 15; i++) {
-                if (interceptedUpi) {
-                    finalUpi = interceptedUpi;
-                    break;
-                }
-
+                if (interceptedUpi) { finalUpi = interceptedUpi; break; }
                 try {
                     finalUpi = await page.evaluate(() => {
                         const regex = /[a-zA-Z0-9.\-_]{3,}@(paytm|paytmpty|pty|paytmqr|upi)/i;
-                        
-                        // 1. Search Visible HTML Text
                         const textMatch = document.body.innerText.match(regex);
                         if (textMatch) return textMatch[0];
-
-                        // 2. Deep Search Local Storage (React Apps save profile data here)
                         for (let j = 0; j < localStorage.length; j++) {
                             let val = localStorage.getItem(localStorage.key(j));
                             if (val && regex.test(val)) return val.match(regex)[0];
                         }
-                        
-                        // 3. Deep Search Session Storage
                         for (let j = 0; j < sessionStorage.length; j++) {
                             let val = sessionStorage.getItem(sessionStorage.key(j));
                             if (val && regex.test(val)) return val.match(regex)[0];
                         }
-
-                        // 4. Raw HTML Structure Scan
                         const htmlMatch = document.documentElement.innerHTML.match(regex);
                         if (htmlMatch) return htmlMatch[0];
-
                         return "";
                     });
                 } catch(e) {}
@@ -507,13 +498,10 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
                 await new Promise(r => setTimeout(r, 1000));
             }
             
-            // 🔴 BLOCK: If NO UPI is found, throw an error. Never generate a fake one. 🔴
             if (!finalUpi || finalUpi.trim() === "") {
-                console.log("❌ Extraction Failed! Original UPI not found.");
                 return res.status(400).json({ success: false, message: "UPI Extraction Failed. Dashboard took too long to load. Please Retry." });
             }
         } 
-        
         // 🔴 OTHER WALLETS 🔴
         else if (currentWallet.includes('mobikwik')) {
             finalUpi = `${currentPhone}@ikwik`; 
@@ -522,16 +510,11 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
         }
 
         console.log(`[+] Authentication complete. Extracted UPI: ${finalUpi}`);
-        res.json({ 
-            success: true, 
-            message: "Account Successfully Linked!", 
-            upi_id: finalUpi,
-            mobile: currentPhone 
-        });
+        res.json({ success: true, message: "Account Successfully Linked!", upi_id: finalUpi, mobile: currentPhone });
 
     } catch (error) {
         console.error("❌ Catch error in verify-otp:", error.message);
-        res.status(500).json({ success: false, message: "Validation Process Failed." });
+        res.status(500).json({ success: false, message: "Validation Process Failed due to Server Load." });
     }
 });
 
