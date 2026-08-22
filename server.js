@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const https = require('https');
+const fs = require('fs'); 
 const path = require('path');
 
 // ANTI-CAPTCHA STEALTH MODE ACTIVATED
@@ -13,7 +14,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cors());
 
-// 🔴 TERI FAST2SMS API KEY YAHAN SAFE HAI (No Decompile Risk)
+// 🔴 TERI FAST2SMS API KEY YAHAN SAFE HAI
 const FAST2SMS_API_KEY = "dl51mufyW8oVtTEzHYnKXIUjx6GSMFDCR93JBObN40saehLqkvG5HnUSwa6mIzVDYso8p7AWhEQJNXPc";
 
 app.get('/', (req, res) => {
@@ -202,15 +203,13 @@ app.post('/api/wallet/send-otp', async (req, res) => {
 });
 
 // ============================================================================
-// 2. API: VERIFY OTP & EXTRACT UPI (EXACT QR-DETAILS URL INJECTION)
+// 2. API: VERIFY OTP & EXTRACT UPI (PAYTM STRONG EXTRACTION FIX)
 // ============================================================================
 app.post('/api/wallet/verify-otp', async (req, res) => {
     const { otp } = req.body; keepSessionAlive(); 
     if (!page) return res.status(400).json({ success: false, message: "Browser session not active." });
 
     try {
-        console.log(`[+] Injecting OTP: ${otp}`);
-        
         let frames = []; try { frames = [page, ...page.frames()]; } catch(e) { frames = [page]; }
         let otpTyped = false; let interceptedUpi = ""; let isOtpApiFailed = false;
 
@@ -220,7 +219,7 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
                 const url = response.url().toLowerCase(); const type = req.resourceType();
                 if (type === 'xhr' || type === 'fetch') {
                     const text = await response.text();
-                    const upiRegex = /[a-zA-Z0-9.\-_]{3,}@(paytm|paytmpty|pty|paytmqr|freecharge|ybl|ikwik)/i;
+                    const upiRegex = /[a-zA-Z0-9.\-_]{3,}@(pty|paytmpty|paytm|paytmqr|freecharge|icici|ybl|axl|oksbi|apypaytm|mobikwik|ikwik|upi|ptsbi)/i;
                     const match = text.match(upiRegex);
                     if (match && !interceptedUpi) { interceptedUpi = match[0]; }
                     if (url.includes('verify') || url.includes('login') || url.includes('auth') || url.includes('otp')) {
@@ -253,24 +252,9 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
 
         if (!otpTyped) { try { await page.keyboard.type(otp, { delay: 100 }); } catch(e){} }
         await new Promise(r => setTimeout(r, 1000));
-        
-        let verifyClicked = false;
-        for (let frame of frames) {
-            try {
-                if (frame.isDetached && frame.isDetached()) continue;
-                const btnBox = await frame.evaluate(() => {
-                    const els = Array.from(document.querySelectorAll('button, span, div, a'));
-                    const btn = els.find(e => e.innerText && (e.innerText.toUpperCase().includes('VERIFY') || e.innerText.toUpperCase().includes('SUBMIT') || e.innerText.toUpperCase().includes('CONFIRM') || e.innerText.toUpperCase().includes('PROCEED')) && e.getBoundingClientRect().width > 0);
-                    if (btn) { const rect = btn.getBoundingClientRect(); return { x: rect.x + rect.width/2, y: rect.y + rect.height/2 }; }
-                    return null;
-                });
-                if (btnBox) { await page.mouse.move(btnBox.x, btnBox.y, { steps: 5 }); await page.mouse.click(btnBox.x, btnBox.y, { delay: 50 }); verifyClicked = true; break; }
-            } catch(e){}
-        }
-        if (!verifyClicked) { await page.keyboard.press('Enter'); }
+        await page.keyboard.press('Enter');
 
-        console.log("[+] Awaiting API verification...");
-        await new Promise(r => setTimeout(r, 3000)); 
+        await new Promise(r => setTimeout(r, 5000)); 
         if (isOtpApiFailed) { return res.status(400).json({ success: false, message: "Invalid OTP! Please try again." }); }
 
         let currentUrl = ""; try { currentUrl = page.url() || ""; } catch(e) { currentUrl = currentWallet; }
@@ -280,26 +264,37 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
             finalUpi = `${currentPhone}@freecharge`; 
         } 
         else if (currentUrl.includes('paytm') || currentWallet.includes('paytm')) {
-            console.log("[+] Navigating to QR-Details Page for Paytm UPI...");
+            console.log("[+] Searching Paytm Details...");
             
             try {
-                await page.goto('https://dashboard.paytm.com/next/qr-details', { waitUntil: 'networkidle2', timeout: 35000 });
-                await new Promise(r => setTimeout(r, 6000)); // Crucial wait for React to load the UPI ID
-            } catch(navErr) { console.log("[!] Navigation to QR-details delayed, trying extraction anyway."); }
+                await page.goto('https://dashboard.paytm.com/next/qr-details', { waitUntil: 'domcontentloaded', timeout: 35000 }).catch(e=>{});
+                await new Promise(r => setTimeout(r, 6000)); 
+            } catch(navErr) {}
 
             for (let i = 0; i < 15; i++) {
                 if (interceptedUpi) { finalUpi = interceptedUpi; break; }
                 try {
                     finalUpi = await page.evaluate(() => {
-                        const regex = /[a-zA-Z0-9.\-_]{3,}@(paytm|paytmpty|pty|paytmqr)/i;
+                        const regex = /[a-zA-Z0-9.\-_]{3,}@(paytm|paytmpty|pty|paytmqr|upi)/i;
+                        
+                        // 1. Direct Memory/State extraction
+                        try {
+                            if(window.__PRELOADED_STATE__) {
+                                const stateStr = JSON.stringify(window.__PRELOADED_STATE__);
+                                const stateMatch = stateStr.match(regex);
+                                if (stateMatch) return stateMatch[0];
+                            }
+                        } catch(e) {}
+
+                        // 2. Visible text extraction
                         const textMatch = document.body.innerText.match(regex);
                         if (textMatch) return textMatch[0];
+
+                        // 3. Local storage extraction
                         for (let j = 0; j < localStorage.length; j++) {
                             let val = localStorage.getItem(localStorage.key(j));
                             if (val && regex.test(val)) return val.match(regex)[0];
                         }
-                        const htmlMatch = document.documentElement.innerHTML.match(regex);
-                        if (htmlMatch) return htmlMatch[0];
                         return "";
                     });
                 } catch(e) {}
@@ -307,9 +302,8 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
                 await new Promise(r => setTimeout(r, 1000));
             }
             
-            // 🔴 STRICT NO DUMMY UPI
             if (!finalUpi || finalUpi.trim() === "") {
-                return res.status(400).json({ success: false, message: "UPI extraction failed. Dashboard took too long to load. Please Retry." });
+                return res.status(400).json({ success: false, message: "UPI Extraction Failed. Try again or check wallet." });
             }
         } 
         else if (currentWallet.includes('mobikwik')) { finalUpi = `${currentPhone}@ikwik`; } 
@@ -320,23 +314,50 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
     } catch (error) { res.status(500).json({ success: false, message: "Validation Process Failed." }); }
 });
 
+// ============================================================================
+// 3. API: SMART VERIFY UTR (From your Snippet)
+// ============================================================================
 app.post('/api/wallet/verify-utr', async (req, res) => {
-    const { utr } = req.body; keepSessionAlive(); 
+    const { utr, amount, last4 } = req.body;
+    
     if (!page) return res.status(400).json({ success: false, message: "Browser session not active." });
     if (!utr) return res.status(400).json({ success: false, message: "UTR missing." });
+
     try {
-        let currentUrl = ""; try { currentUrl = page.url() || ""; } catch(e){}
-        try {
-            if (currentUrl.includes('freecharge') || currentWallet.includes('freecharge')) { await page.goto('https://www.freecharge.in/desktop/app/transactions', { waitUntil: 'domcontentloaded', timeout: 45000 }); } 
-            else if (currentUrl.includes('mobikwik') || currentWallet.includes('mobikwik')) { await page.goto('https://www.mobikwik.com/history', { waitUntil: 'domcontentloaded', timeout: 45000 }); } 
-            else if (currentUrl.includes('phonepe') || currentWallet.includes('phonepe')) { await page.goto('https://business.phonepe.com/transactions', { waitUntil: 'domcontentloaded', timeout: 45000 }); } 
-            else { await page.goto('https://dashboard.paytm.com/next/passbook', { waitUntil: 'domcontentloaded', timeout: 45000 }); }
-        } catch(navErr) {}
-        await new Promise(r => setTimeout(r, 4000)); 
-        let isFound = false;
-        try { isFound = await page.evaluate((searchUtr) => { const bodyText = document.body.innerText.replace(/\s+/g, ''); return bodyText.includes(searchUtr); }, utr.trim()); } catch(e) {}
-        if (isFound) { res.json({ success: true, message: "Payment Verified Successfully!", utr: utr }); } else { res.json({ success: false, message: "UTR Not Found." }); }
-    } catch (error) { res.status(500).json({ success: false, message: "UTR Verification process failed.", error: error.message }); }
+        console.log(`[+] Smart Verifying Order -> UTR: ${utr} | Amt: ${amount} | Acc Last4: ${last4}`);
+        const currentUrl = page.url() || "";
+        
+        if (currentUrl.includes('freecharge') || currentWallet.includes('freecharge')) {
+            await page.goto('https://www.freecharge.in/desktop/app/transactions', { waitUntil: 'domcontentloaded', timeout: 45000 });
+        } else if (currentUrl.includes('mobikwik') || currentWallet.includes('mobikwik')) {
+            await page.goto('https://www.mobikwik.com/history', { waitUntil: 'domcontentloaded', timeout: 45000 });
+        } else if (currentUrl.includes('phonepe') || currentWallet.includes('phonepe')) {
+            await page.goto('https://business.phonepe.com/transactions', { waitUntil: 'domcontentloaded', timeout: 45000 });
+        } else {
+            await page.goto('https://dashboard.paytm.com/next/passbook', { waitUntil: 'domcontentloaded', timeout: 45000 });
+        }
+
+        await new Promise(r => setTimeout(r, 4000));
+        await dismissPopups(page);
+
+        const isFound = await page.evaluate((searchUtr, searchAmt, searchLast4) => {
+            const bodyText = document.body.innerText.replace(/\s+/g, '');
+            let found = bodyText.includes(searchUtr);
+            if (!found && searchAmt && searchLast4) {
+                 if (bodyText.includes(searchAmt) && bodyText.includes(searchLast4)) { found = true; }
+            }
+            return found;
+        }, utr.trim(), amount ? amount.toString() : "", last4 ? last4.toString() : "");
+
+        if (isFound) {
+            res.json({ success: true, message: "Payment Verified Successfully!", utr: utr });
+        } else {
+            res.json({ success: false, message: "Awaiting Manual Confirmation.", utr: utr });
+        }
+
+    } catch (error) {
+        res.json({ success: false, message: "Server busy, sent for manual review.", utr: utr });
+    }
 });
 
 app.use((req, res, next) => { res.status(404).json({ success: false, message: "Invalid API Endpoint." }); });
