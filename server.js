@@ -30,8 +30,8 @@ app.post('/api/start-tool', async (req, res) => {
     const { phone, walletType } = req.body;
     if (!phone) return res.status(400).json({ success: false, message: "Phone required" });
 
-    // 🔴 TERI BROWSERLESS API KEY
-    const browserWSEndpoint = 'wss://chrome.browserless.io?token=2V6jGIUi9i2HHBN13c561fc98136daa73b9388455b558503a';
+   // 🔴 BROWSERLESS KA ASLI JUGAAD (Stealth + Headless False) 🔴
+const browserWSEndpoint = 'wss://chrome.browserless.io?token=2V6jGIUi9i2HHBN13c561fc98136daa73b9388455b558503a&stealth=true&headless=false&--disable-blink-features=AutomationControlled';
 
     // Pehle se koi session hai toh usko securely kill karo
     if (activeSessions[phone] && activeSessions[phone].browser) {
