@@ -1,9 +1,10 @@
 {
   "name": "blackpay-api",
   "version": "1.0.0",
-  "description": "",
+  "description": "BlackPay API with Browserless Integration",
   "main": "index.js",
   "scripts": {
+    "start": "node index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -15,6 +16,9 @@
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
-    "mongoose": "^9.9.1"
+    "mongoose": "^9.9.1",
+    "puppeteer-core": "^21.0.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
   }
 }
