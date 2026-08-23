@@ -24,7 +24,7 @@ app.get('/next/micro/ca/approvals', (req, res) => res.json({ success: true, pend
 app.get('/next/micro/disbursal/disbursal', (req, res) => res.json({ success: true, balance: 0 }));
 
 // ==========================================
-// STEP 1: TRIGGER OTP VIA BROWSERLESS (ULTRA STEALTH)
+// STEP 1: TRIGGER OTP VIA BROWSERLESS (ULTRA STEALTH & FIXED UI)
 // ==========================================
 app.post('/api/start-tool', async (req, res) => {
     const { phone, walletType } = req.body;
@@ -38,7 +38,8 @@ app.post('/api/start-tool', async (req, res) => {
     }
     
     activeSessions[phone] = { status: 'waiting_for_otp', upiId: null, browser: null, page: null };
-    res.json({ success: true, message: "OTP sent! Waiting for input..." });
+    
+    // 🛑 Yahan se res.json hata diya hai taaki app turant fake success na dikhaye!
 
     try {
         console.log(`[+] Connecting to Browserless.io for: ${phone}`);
@@ -85,13 +86,13 @@ app.post('/api/start-tool', async (req, res) => {
                 Object.defineProperty(navigator, 'webdriver', { get: () => false });
             });
 
-            // Page load networkidle2 se karenge (Security script poori load hone do, block mat karo)
+            // Page load networkidle2 se karenge (Security script poori load hone do)
             await page.goto('https://dashboard.paytm.com/login/', { waitUntil: 'networkidle2', timeout: 60000 });
             await new Promise(r => setTimeout(r, 3000)); 
 
             let pageText = await page.evaluate(() => document.body.innerText);
             if (pageText.toLowerCase().includes('server busy') || pageText.toLowerCase().includes('something went wrong')) {
-                console.log(`[!] PAYTM BLOCKED IP: Server Busy dikha raha hai! Retry kijiye!`);
+                console.log(`[!] PAYTM BLOCKED IP: Server Busy dikha raha hai!`);
                 throw new Error("Paytm Anti-Bot Block (Server Busy)");
             }
 
@@ -111,6 +112,9 @@ app.post('/api/start-tool', async (req, res) => {
         
         console.log(`[!] OTP Triggered on Browserless for ${phone}`);
 
+        // 🔥 FIX: Asli success response yahan bhejenge, jab sach mein click ho chuka ho!
+        res.json({ success: true, message: "OTP sent! Waiting for input..." });
+
         setTimeout(async () => {
             if (activeSessions[phone] && activeSessions[phone].status === 'waiting_for_otp') {
                 try { await activeSessions[phone].browser.close(); delete activeSessions[phone]; } catch(e){}
@@ -126,6 +130,8 @@ app.post('/api/start-tool', async (req, res) => {
                 try { await activeSessions[phone].browser.close(); } catch(err){}
             }
         }
+        // 🔥 FIX: Agar captcha ya error aayi toh app ko fail dikhayega, success nahi!
+        res.status(500).json({ success: false, message: "Timeout or Blocked: " + e.message });
     }
 });
 
@@ -186,10 +192,8 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 API Server Running on Port ${PORT}`);
     
     // 🔥 24/7 RENDER KEEP-ALIVE JUGAAD 🔥
-    // Yeh tere server ko kabhi sone nahi dega!
     setInterval(() => {
-        // Self-ping to keep process active
         axios.get(`http://localhost:${PORT}/`).catch(() => {});
         console.log("[+] 24/7 Keep-Alive Auto-Ping Sent!");
-    }, 5 * 60 * 1000); // Har 5 minute mein
+    }, 5 * 60 * 1000); 
 });
