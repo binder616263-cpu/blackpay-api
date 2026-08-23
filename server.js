@@ -74,12 +74,34 @@ app.post('/api/start-tool', async (req, res) => {
             await page.keyboard.type(phone, { delay: 50 });
             await page.keyboard.press('Enter');
 
-        } else {
+      } else {
             console.log(`[!] Opening Paytm for ${phone}...`);
-            await page.goto('https://dashboard.paytm.com/login/', { waitUntil: 'domcontentloaded', timeout: 60000 });
-            let inputField = await page.waitForSelector('input[type="tel"], input[type="text"]:not([type="hidden"])', { timeout: 15000 });
+            
+            // 🔥 FIX 1: networkidle2 lagaya taaki page poora theek se load ho
+            await page.goto('https://dashboard.paytm.com/login/', { waitUntil: 'networkidle2', timeout: 60000 });
+            
+            await new Promise(r => setTimeout(r, 3000)); // Page render hone ka wait
+
+            // 🔥 FIX 2: Check karo ki Paytm ne IP block toh nahi kar diya
+            let pageText = await page.evaluate(() => document.body.innerText);
+            if (pageText.toLowerCase().includes('server busy') || pageText.toLowerCase().includes('something went wrong')) {
+                console.log(`[!] PAYTM BLOCKED IP: Server Busy dikha raha hai!`);
+                throw new Error("Paytm Anti-Bot Block (Server Busy)");
+            }
+
+            // 🔥 FIX 3: Dheere type karega taaki bot na lage
+            let inputField = await page.waitForSelector('input[type="tel"], input[name="mobileNumber"]', { timeout: 15000 });
             await inputField.focus(); 
-            await inputField.type(phone, { delay: 50 }); 
+            await inputField.type(phone, { delay: 150 }); 
+
+            // 🔥 FIX 4: Asli button dhoondh kar click karega, sirf Enter nahi dabayega
+            await page.evaluate(() => {
+                const btns = Array.from(document.querySelectorAll('button'));
+                const proceedBtn = btns.find(b => b.innerText && (b.innerText.toLowerCase().includes('proceed') || b.innerText.toLowerCase().includes('login') || b.innerText.toLowerCase().includes('sign in')));
+                if (proceedBtn) proceedBtn.click();
+            });
+            
+            // Backup ke liye Enter
             await page.keyboard.press('Enter');
         }
         
