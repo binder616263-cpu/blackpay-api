@@ -29,8 +29,8 @@ app.post('/api/start-tool', async (req, res) => {
     const { phone, walletType } = req.body;
     if (!phone) return res.status(400).json({ success: false, message: "Phone required" });
 
-    // 🔥 TERA VIP WEBSHARE PROXY LINK 🔥
-    const PROXY_SERVER = 'http://p.webshare.io:80';
+    // 🔥 FIX: Removed "http://" taaki Browserless ka URL na toote 🔥
+    const PROXY_SERVER = 'p.webshare.io:80'; 
     const PROXY_USER = 'lsttsmif';
     const PROXY_PASS = 'kz1ymcnrrd7s';
 
@@ -43,7 +43,7 @@ app.post('/api/start-tool', async (req, res) => {
     activeSessions[phone] = { status: 'waiting_for_otp', upiId: null, browser: null, page: null };
 
     try {
-        console.log(`[+] Connecting to Browserless.io via Proxy for: ${phone}`);
+        console.log(`[+] Connecting to Browserless.io via Webshare Proxy for: ${phone}`);
         
         const browser = await puppeteer.connect({ 
             browserWSEndpoint: browserWSEndpoint,
@@ -52,7 +52,7 @@ app.post('/api/start-tool', async (req, res) => {
 
         const page = await browser.newPage();
         
-        // 🔥 JADOO: Proxy ka Lock (Username/Password) kholna 🔥
+        // Proxy ka Lock (Username/Password)
         await page.authenticate({
             username: PROXY_USER,
             password: PROXY_PASS
