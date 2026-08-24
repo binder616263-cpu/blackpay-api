@@ -13,7 +13,7 @@ app.use(cors());
 
 let activeSessions = {};
 
-app.get('/', (req, res) => res.json({ success: true, message: "BlackPay Master Server Running (Native Proxy Fix!)" }));
+app.get('/', (req, res) => res.json({ success: true, message: "BlackPay Local Termux Server Running Perfectly!" }));
 
 // Dummy Uono Hub Routes
 app.get('/next/micro/ar/all-customers', (req, res) => res.json({ success: true, data: [] }));
@@ -23,14 +23,11 @@ app.get('/next/micro/ca/approvals', (req, res) => res.json({ success: true, pend
 app.get('/next/micro/disbursal/disbursal', (req, res) => res.json({ success: true, balance: 0 }));
 
 // ==========================================
-// STEP 1: TRIGGER OTP VIA BROWSERLESS + NATIVE PROXY
+// STEP 1: TRIGGER OTP LOCALLY ON PHONE
 // ==========================================
 app.post('/api/start-tool', async (req, res) => {
     const { phone, walletType } = req.body;
     if (!phone) return res.status(400).json({ success: false, message: "Phone required" });
-
-    // Browserless connection URL (Pure token wala, no proxy flags here)
-    const browserWSEndpoint = 'wss://chrome.browserless.io?token=2V6jGIUi9i2HHBN13c561fc98136daa73b9388455b558503a&stealth=true&--disable-blink-features=AutomationControlled';
 
     if (activeSessions[phone] && activeSessions[phone].browser) {
         try { await activeSessions[phone].browser.close(); } catch(e){}
@@ -39,21 +36,15 @@ app.post('/api/start-tool', async (req, res) => {
     activeSessions[phone] = { status: 'waiting_for_otp', upiId: null, browser: null, page: null };
 
     try {
-        console.log(`[+] Connecting cleanly to Browserless.io for: ${phone}`);
+        console.log(`[+] Launching Local Browser on Phone for: ${phone}`);
         
-        const browser = await puppeteer.connect({ 
-            browserWSEndpoint: browserWSEndpoint,
-            defaultViewport: null
+        // Local phone par direct Chromium launch hoga (No Cloud, No Blocks!)
+        const browser = await puppeteer.launch({ 
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
         });
 
         const page = await browser.newPage();
-        
-        // 🔥 NATIVE PROXY & AUTHENTICATION SETTING 🔥
-        await page.authenticate({
-            username: 'lsttsmif',
-            password: 'kz1ymcnrrd7s'
-        });
-
         await page.setUserAgent('Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36');
 
         activeSessions[phone].browser = browser;
@@ -109,8 +100,7 @@ app.post('/api/start-tool', async (req, res) => {
             await page.keyboard.press('Enter');
         }
         
-        console.log(`[!] OTP Triggered on Browserless for ${phone}`);
-
+        console.log(`[!] OTP Triggered Locally for ${phone}`);
         res.json({ success: true, message: "OTP sent! Waiting for input..." });
 
         setTimeout(async () => {
@@ -121,7 +111,7 @@ app.post('/api/start-tool', async (req, res) => {
         }, 180000);
 
     } catch (e) {
-        console.log(`[-] Browserless Error on ${phone}: ${e.message}`);
+        console.log(`[-] Local Browser Error on ${phone}: ${e.message}`);
         if(activeSessions[phone]) {
             activeSessions[phone].status = 'failed';
             if (activeSessions[phone].browser) {
@@ -186,11 +176,11 @@ app.get('/api/check-status/:phone', (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 API Server Running on Port ${PORT}`);
+    console.log(`🚀 Local Termux API Server Running on Port ${PORT}`);
     
     // 24/7 Keep Alive
     setInterval(() => {
         axios.get(`http://localhost:${PORT}/`).catch(() => {});
-        console.log("[+] 24/7 Keep-Alive Auto-Ping Sent!");
+        console.log("[+] Local Keep-Alive Auto-Ping Sent!");
     }, 5 * 60 * 1000); 
 });
