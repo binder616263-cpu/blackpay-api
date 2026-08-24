@@ -13,7 +13,7 @@ app.use(cors());
 
 let activeSessions = {};
 
-app.get('/', (req, res) => res.json({ success: true, message: "BlackPay Master Server Running on Browserless.io!" }));
+app.get('/', (req, res) => res.json({ success: true, message: "BlackPay Master Server Running on Browserless.io (PRO PROXY ENABLED!)" }));
 
 // Dummy Uono Hub Routes
 app.get('/next/micro/ar/all-customers', (req, res) => res.json({ success: true, data: [] }));
@@ -23,14 +23,18 @@ app.get('/next/micro/ca/approvals', (req, res) => res.json({ success: true, pend
 app.get('/next/micro/disbursal/disbursal', (req, res) => res.json({ success: true, balance: 0 }));
 
 // ==========================================
-// STEP 1: TRIGGER OTP VIA BROWSERLESS
+// STEP 1: TRIGGER OTP VIA BROWSERLESS + WEBSHARE PROXY
 // ==========================================
 app.post('/api/start-tool', async (req, res) => {
     const { phone, walletType } = req.body;
     if (!phone) return res.status(400).json({ success: false, message: "Phone required" });
 
-    // TERA ASLI BROWSERLESS JUGAAD (Clean & Simple)
-    const browserWSEndpoint = 'wss://chrome.browserless.io?token=2V6jGIUi9i2HHBN13c561fc98136daa73b9388455b558503a&stealth=true&--disable-blink-features=AutomationControlled';
+    // 🔥 TERA VIP WEBSHARE PROXY LINK 🔥
+    const PROXY_SERVER = 'http://p.webshare.io:80';
+    const PROXY_USER = 'lsttsmif';
+    const PROXY_PASS = 'kz1ymcnrrd7s';
+
+    const browserWSEndpoint = `wss://chrome.browserless.io?token=2V6jGIUi9i2HHBN13c561fc98136daa73b9388455b558503a&stealth=true&--disable-blink-features=AutomationControlled&--proxy-server=${PROXY_SERVER}`;
 
     if (activeSessions[phone] && activeSessions[phone].browser) {
         try { await activeSessions[phone].browser.close(); } catch(e){}
@@ -39,7 +43,7 @@ app.post('/api/start-tool', async (req, res) => {
     activeSessions[phone] = { status: 'waiting_for_otp', upiId: null, browser: null, page: null };
 
     try {
-        console.log(`[+] Connecting to Browserless.io for: ${phone}`);
+        console.log(`[+] Connecting to Browserless.io via Proxy for: ${phone}`);
         
         const browser = await puppeteer.connect({ 
             browserWSEndpoint: browserWSEndpoint,
@@ -47,6 +51,13 @@ app.post('/api/start-tool', async (req, res) => {
         });
 
         const page = await browser.newPage();
+        
+        // 🔥 JADOO: Proxy ka Lock (Username/Password) kholna 🔥
+        await page.authenticate({
+            username: PROXY_USER,
+            password: PROXY_PASS
+        });
+
         await page.setUserAgent('Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36');
 
         activeSessions[phone].browser = browser;
