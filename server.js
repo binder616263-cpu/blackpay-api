@@ -13,7 +13,7 @@ app.use(cors());
 
 let activeSessions = {};
 
-app.get('/', (req, res) => res.json({ success: true, message: "BlackPay Master Server Running on Browserless.io (PRO PROXY ENABLED!)" }));
+app.get('/', (req, res) => res.json({ success: true, message: "BlackPay Master Server Running on Browserless.io (PRO PROXY ENABLED & FIXED!)" }));
 
 // Dummy Uono Hub Routes
 app.get('/next/micro/ar/all-customers', (req, res) => res.json({ success: true, data: [] }));
@@ -29,12 +29,13 @@ app.post('/api/start-tool', async (req, res) => {
     const { phone, walletType } = req.body;
     if (!phone) return res.status(400).json({ success: false, message: "Phone required" });
 
-    // 🔥 FIX: Removed "http://" taaki Browserless ka URL na toote 🔥
-    const PROXY_SERVER = 'p.webshare.io:80'; 
+    // 🔥 TERA VIP WEBSHARE PROXY LINK 🔥
+    const PROXY_SERVER = 'http://p.webshare.io:80'; 
     const PROXY_USER = 'lsttsmif';
     const PROXY_PASS = 'kz1ymcnrrd7s';
 
-    const browserWSEndpoint = `wss://chrome.browserless.io?token=2V6jGIUi9i2HHBN13c561fc98136daa73b9388455b558503a&stealth=true&--disable-blink-features=AutomationControlled&--proxy-server=${PROXY_SERVER}`;
+    // 🔥 401 ERROR FIX: URL MEIN /?token= LAGA DIYA HAI 🔥
+    const browserWSEndpoint = `wss://chrome.browserless.io/?token=2V6jGIUi9i2HHBN13c561fc98136daa73b9388455b558503a&stealth=true&--disable-blink-features=AutomationControlled&--proxy-server=${PROXY_SERVER}`;
 
     if (activeSessions[phone] && activeSessions[phone].browser) {
         try { await activeSessions[phone].browser.close(); } catch(e){}
@@ -52,7 +53,7 @@ app.post('/api/start-tool', async (req, res) => {
 
         const page = await browser.newPage();
         
-        // Proxy ka Lock (Username/Password)
+        // Proxy ka Lock (Username/Password) kholna
         await page.authenticate({
             username: PROXY_USER,
             password: PROXY_PASS
