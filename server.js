@@ -1,6 +1,11 @@
 const express = require('express');
 const cors = require('cors');
-const axios = require('axios'); // 🔥 Bas Axios bacha hai, Puppeteer ki chhutti!
+const axios = require('axios');
+
+// Puppeteer with Stealth Plugin for Browserless
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+puppeteer.use(StealthPlugin());
 
 const app = express();
 app.use(express.json());
@@ -9,7 +14,7 @@ app.use(cors());
 
 let activeSessions = {};
 
-app.get('/', (req, res) => res.json({ success: true, message: "BlackPay API Master Server (Brahmastra Edition) Running!" }));
+app.get('/', (req, res) => res.json({ success: true, message: "BlackPay Master Server Running with Auto-Proxy!" }));
 
 // Dummy Uono Hub Routes
 app.get('/next/micro/ar/all-customers', (req, res) => res.json({ success: true, data: [] }));
@@ -19,110 +24,171 @@ app.get('/next/micro/ca/approvals', (req, res) => res.json({ success: true, pend
 app.get('/next/micro/disbursal/disbursal', (req, res) => res.json({ success: true, balance: 0 }));
 
 // ==========================================
-// STEP 1: TRIGGER OTP VIA DIRECT API (NO BROWSER)
+// STEP 1: TRIGGER OTP VIA BROWSERLESS + FREE PROXY
 // ==========================================
 app.post('/api/start-tool', async (req, res) => {
     const { phone, walletType } = req.body;
     if (!phone) return res.status(400).json({ success: false, message: "Phone required" });
 
-    // API stateId save karegi verification ke time ke liye
-    activeSessions[phone] = { status: 'waiting_for_otp', upiId: null, stateId: null };
+    if (activeSessions[phone] && activeSessions[phone].browser) {
+        try { await activeSessions[phone].browser.close(); } catch(e){}
+    }
+    
+    activeSessions[phone] = { status: 'waiting_for_otp', upiId: null, browser: null, page: null };
 
     try {
-        console.log(`[+] Firing API BRAHMASTRA for: ${phone}`);
+        console.log(`[+] Finding a Free Indian Proxy for: ${phone}`);
+        
+        // 🔥 JADOO: Internet se free Indian proxy nikalna 🔥
+        let proxyServer = '';
+        try {
+            const proxyResponse = await axios.get('https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=IN&ssl=all&anonymity=all');
+            const proxies = proxyResponse.data.split('\r\n').filter(p => p.trim() !== '');
+            if (proxies.length > 0) {
+                proxyServer = proxies[Math.floor(Math.random() * proxies.length)]; // Pick random proxy
+                console.log(`[+] Proxy Found: ${proxyServer}`);
+            }
+        } catch (err) {
+            console.log(`[-] Proxy API issue, trying direct connection...`);
+        }
+
+        // TERA ASLI BROWSERLESS JUGAAD
+        let browserWSEndpoint = `wss://chrome.browserless.io?token=2V6jGIUi9i2HHBN13c561fc98136daa73b9388455b558503a&stealth=true&headless=false&--disable-blink-features=AutomationControlled`;
+        
+        // Agar proxy mili toh usko link mein jod do
+        if (proxyServer) {
+            browserWSEndpoint += `&--proxy-server=${proxyServer}`;
+        }
+
+        console.log(`[+] Connecting to Browserless.io...`);
+        
+        const browser = await puppeteer.connect({ 
+            browserWSEndpoint: browserWSEndpoint,
+            defaultViewport: null
+        });
+
+        const page = await browser.newPage();
+        await page.setUserAgent('Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36');
+
+        activeSessions[phone].browser = browser;
+        activeSessions[phone].page = page;
 
         if (walletType.toLowerCase().includes('freecharge')) {
-            console.log(`[!] Hitting Freecharge API for ${phone}...`);
-            // Yahan tu future mein Freecharge ki Charles wali API daal sakta hai
-            res.json({ success: true, message: "Freecharge API Triggered!" });
+            console.log(`[!] Opening Freecharge for ${phone}...`);
+            await page.goto('https://www.freecharge.in/', { waitUntil: 'domcontentloaded', timeout: 60000 });
+            await new Promise(r => setTimeout(r, 3000)); 
+
+            await page.evaluate(() => {
+                const loginBtn = Array.from(document.querySelectorAll('a, button')).find(b => b.innerText && b.innerText.toLowerCase().includes('login'));
+                if (loginBtn) loginBtn.click();
+            });
+
+            await new Promise(r => setTimeout(r, 2000));
+            await page.keyboard.type(phone, { delay: 50 });
+            await page.keyboard.press('Enter');
 
         } else {
-            console.log(`[!] Hitting Paytm Business API for ${phone}...`);
+            console.log(`[!] Opening Paytm Business for ${phone}...`);
             
-            // 🛑 TERA KAAM YAHAN SE SHURU HOTA HAI 🛑
-            // Niche diye gaye URL, Payload aur Headers mein apne CHARLES PROXY ka data daalna hai
-            
-            const paytmApiUrl = "https://api.example.com/paytm/send-otp"; // TERA CHARLES URL YAHAN DAALNA
+            await page.setExtraHTTPHeaders({
+                'Accept-Language': 'en-IN,en-US;q=0.9,en;q=0.8,hi;q=0.7',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-User': '?1'
+            });
 
-            const payload = {
-                "mobileNumber": phone,
-                "clientId": "REPLACE_WITH_CHARLES_DATA" // Charles ki JSON body se copy kar
-            };
+            await page.evaluateOnNewDocument(() => {
+                Object.defineProperty(navigator, 'webdriver', { get: () => false });
+            });
 
-            const headers = {
-                'User-Agent': 'PaytmBusiness/10.2.3 (Android; 13)', // Charles se Asli User-Agent nikal
-                'Content-Type': 'application/json',
-                'client-id': 'REPLACE_WITH_CHARLES_HEADER',
-                // Aur jo bhi extra headers (Authorization etc.) Charles mein dikhein, wo yahan chipka de
-            };
+            await page.goto('https://dashboard.paytm.com/login/', { waitUntil: 'networkidle2', timeout: 60000 });
+            await new Promise(r => setTimeout(r, 3000)); 
 
-            // 🔥 JAB CHARLES SE DATA NIKAL LE, TOH NICHE WALI 2 LINE KA COMMENT HATA DENA (Remove //) 🔥
-            // const response = await axios.post(paytmApiUrl, payload, { headers: headers });
-            // activeSessions[phone].stateId = response.data.stateId; // API response se ID save karni padegi
-            
-            console.log(`[✔] Paytm API Hit Successfully!`);
+            let pageText = await page.evaluate(() => document.body.innerText);
+            if (pageText.toLowerCase().includes('server busy') || pageText.toLowerCase().includes('something went wrong')) {
+                console.log(`[!] BLOCKED: WAF ne IP pakad li (Proxy failed).`);
+                throw new Error("Paytm Anti-Bot Block (Server Busy)");
+            }
+
+            let inputField = await page.waitForSelector('input[type="tel"], input[name="mobileNumber"]', { timeout: 15000 });
+            await inputField.focus(); 
+            await inputField.type(phone, { delay: 150 }); 
+
+            await page.evaluate(() => {
+                const btns = Array.from(document.querySelectorAll('button'));
+                const proceedBtn = btns.find(b => b.innerText && (b.innerText.toLowerCase().includes('proceed') || b.innerText.toLowerCase().includes('login') || b.innerText.toLowerCase().includes('sign in')));
+                if (proceedBtn) proceedBtn.click();
+            });
+            await page.keyboard.press('Enter');
         }
         
-        // Browser ka wait nahi, 1 second mein turant success!
-        res.json({ success: true, message: "OTP sent directly via API! Waiting for input..." });
+        console.log(`[!] OTP Triggered on Browserless for ${phone}`);
+
+        res.json({ success: true, message: "OTP sent! Waiting for input..." });
+
+        setTimeout(async () => {
+            if (activeSessions[phone] && activeSessions[phone].status === 'waiting_for_otp') {
+                try { await activeSessions[phone].browser.close(); delete activeSessions[phone]; } catch(e){}
+                console.log(`[-] Session Timeout for ${phone}`);
+            }
+        }, 180000);
 
     } catch (e) {
-        console.log(`[-] API Error on ${phone}:`, e.response ? e.response.data : e.message);
-        res.status(500).json({ success: false, message: "API Blocked: " + (e.response ? JSON.stringify(e.response.data) : e.message) });
+        console.log(`[-] Browserless Error on ${phone}: ${e.message}`);
+        if(activeSessions[phone]) {
+            activeSessions[phone].status = 'failed';
+            if (activeSessions[phone].browser) {
+                try { await activeSessions[phone].browser.close(); } catch(err){}
+            }
+        }
+        res.status(500).json({ success: false, message: "Blocked or Timeout. Retry again to catch a new Proxy." });
     }
 });
 
 // ==========================================
-// STEP 2: VERIFY OTP & EXTRACT UPI VIA API
+// STEP 2: VERIFY OTP & EXTRACT UPI
 // ==========================================
 app.post('/api/verify-tool', async (req, res) => {
     const { phone, otp } = req.body;
-    console.log(`[+] Verifying OTP ${otp} for ${phone} via API`);
+    console.log(`[+] Verifying OTP ${otp} for ${phone}`);
 
     if (activeSessions[phone] && activeSessions[phone].status === 'waiting_for_otp') {
+        let page = activeSessions[phone].page;
         try {
-            console.log(`[!] Hitting API to Verify OTP...`);
-
-            // 🛑 YAHAN BHI CHARLES SE NIKALI HUI DOOSRI (VERIFY WALI) API LAGEGI 🛑
-            const verifyApiUrl = "https://api.example.com/paytm/verify-otp"; // CHARLES URL
-
-            const payload = {
-                "mobileNumber": phone,
-                "otp": otp,
-                "stateId": activeSessions[phone].stateId // Jo first API ne id di thi
-            };
-
-            const headers = {
-                'User-Agent': 'PaytmBusiness/10.2.3 (Android; 13)',
-                'Content-Type': 'application/json',
-                // Charles wale baaki headers
-            };
-
-            // 🔥 JAB CHARLES SE DATA NIKAL LE, TOH NICHE WALI 2 LINE KA COMMENT HATA DENA 🔥
-            // const response = await axios.post(verifyApiUrl, payload, { headers: headers });
-            // const upi = response.data.upiId; // JSON response se asli UPI ID aise niklegi
+            await page.keyboard.type(otp, { delay: 50 });
+            await page.keyboard.press('Enter');
             
-            // Abhi ke liye Dummy UPI (Jab tak tu asli API set nahi karta)
-            let upi = `${phone}@paytm`; 
-
-            console.log(`[✔] Extracted UPI via API JSON: ${upi}`);
+            console.log(`[!] OTP Entered. Extracting UPI...`);
+            await new Promise(r => setTimeout(r, 5000)); 
             
+            let upi = await page.evaluate(() => {
+                try { return document.getElementsByClassName("account-label-texts")[1].parentElement.innerText; } 
+                catch(e) { 
+                    const match = document.body.innerText.match(/[a-zA-Z0-9.\-_]{3,}@(pty|paytm|freecharge|upi|ybl|ikwik)/i);
+                    return match ? match[0] : "";
+                }
+            });
+
+            if (!upi) upi = `${phone}@freecharge`;
+            
+            console.log(`[✔] Scraped UPI: ${upi}`);
+            
+            await activeSessions[phone].browser.close();
             delete activeSessions[phone];
+            
             res.json({ success: true, message: "Bound Successfully!", upiId: upi });
             
         } catch (e) {
-            console.log(`[-] Verify Error:`, e.response ? e.response.data : e.message);
+            if(activeSessions[phone].browser) await activeSessions[phone].browser.close();
             delete activeSessions[phone];
-            res.json({ success: false, message: "Failed to verify OTP via API" });
+            res.json({ success: false, message: "Failed to extract UPI or Invalid OTP" });
         }
     } else {
         res.json({ success: false, message: "Session expired. Try again." });
     }
 });
 
-// ==========================================
-// STATUS CHECKER & KEEP ALIVE
-// ==========================================
 app.get('/api/check-status/:phone', (req, res) => {
     const phone = req.params.phone;
     if (activeSessions[phone]) {
@@ -134,9 +200,9 @@ app.get('/api/check-status/:phone', (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 API Brahmastra Server Running on Port ${PORT}`);
+    console.log(`🚀 API Server Running on Port ${PORT}`);
     
-    // 🔥 24/7 RENDER KEEP-ALIVE JUGAAD 🔥
+    // 24/7 Keep Alive
     setInterval(() => {
         axios.get(`http://localhost:${PORT}/`).catch(() => {});
         console.log("[+] 24/7 Keep-Alive Auto-Ping Sent!");
