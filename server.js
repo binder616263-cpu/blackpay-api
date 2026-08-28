@@ -108,3 +108,15 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => console.log(`🚀 BlackPay Backend Running on Port ${PORT}`));
+
+process.on('uncaughtException', (err) => {
+    console.error('Khatarnak Error (Exception):', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Khatarnak Error (Rejection):', reason);
+});
+
+process.on('exit', (code) => {
+    console.log(`Process chupchaap band ho gaya, Code: ${code}`);
+});
