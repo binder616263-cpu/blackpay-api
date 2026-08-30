@@ -71,7 +71,6 @@ app.post('/api/wallet/send-otp', async (req, res) => {
     try {
         console.log(`[+] Launching LOCAL browser for ${phone} (${walletName})`);
         
-        // 🔥 FINDING ACTUAL GOOGLE CHROME ON LAPTOP 🔥
         let chromePath = null;
         if (fs.existsSync("C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe")) {
             chromePath = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
@@ -81,7 +80,7 @@ app.post('/api/wallet/send-otp', async (req, res) => {
 
         browser = await puppeteer.launch({
             headless: "new",
-            executablePath: chromePath || undefined, // Yahan asli chrome use hoga
+            executablePath: chromePath || undefined,
             args: [
                 '--no-sandbox', 
                 '--disable-setuid-sandbox', 
@@ -201,7 +200,7 @@ app.post('/api/wallet/send-otp', async (req, res) => {
 });
 
 // ============================================================================
-// 2. API: MULTI-USER VERIFY OTP & EXTRACT ORIGINAL UPI
+// 2. API: MULTI-USER VERIFY OTP & ADVANCED UPI SCRAPING
 // ============================================================================
 app.post('/api/wallet/verify-otp', async (req, res) => {
     const phone = req.body.number || req.body.phone;
@@ -228,6 +227,7 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
                 const url = response.url().toLowerCase(); const type = req.resourceType();
                 if (type === 'xhr' || type === 'fetch') {
                     const text = await response.text();
+                    // 🔥 ADVANCED REGEX TO CAPTURE PAYTM MERCHANT HANDLES LIKE paytm.xxxx@pty 🔥
                     const upiRegex = /[a-zA-Z0-9.\-_]{3,}@(pty|paytm|paytmpty|paytmqr|freecharge|icici|ybl|axl|oksbi|apypaytm|mobikwik|ikwik|upi|ptsbi)/i;
                     const match = text.match(upiRegex);
                     if (match && !interceptedUpi) { interceptedUpi = match[0]; }
@@ -274,33 +274,59 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
         } 
         else if (currentUrl.includes('paytm') || currentWallet.includes('paytm')) {
             try {
-                console.log("[+] Navigating to Paytm QR-Details for original merchant @pty UPI...");
+                console.log("[+] Navigating to Paytm QR-Details & Profile for original merchant UPI...");
                 await page.goto('https://dashboard.paytm.com/next/qr-details', { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(e=>{});
-                await new Promise(r => setTimeout(r, 6000));
+                await new Promise(r => setTimeout(r, 4000));
             } catch(navErr) {}
 
-            for (let i = 0; i < 15; i++) {
+            // 🔥 SUPER-CHARGED MULTI-STEP UPI SCRAPER FOR PAYTM 🔥
+            for (let i = 0; i < 20; i++) {
                 if (interceptedUpi) { finalUpi = interceptedUpi; break; }
                 try {
                     finalUpi = await page.evaluate(() => {
                         const regex = /[a-zA-Z0-9.\-_]{3,}@(pty|paytm|paytmpty|paytmqr|upi)/i;
+                        
+                        // 1. Check innerText
                         const textMatch = document.documentElement.innerText.match(regex);
                         if (textMatch) return textMatch[0];
+
+                        // 2. Check input/span/div text values
+                        const elements = document.querySelectorAll('input, span, div, p, label, td, b');
+                        for (let el of elements) {
+                            let val = el.innerText || el.value || el.getAttribute('value') || '';
+                            if (regex.test(val)) {
+                                let m = val.match(regex);
+                                if (m) return m[0];
+                            }
+                        }
+
+                        // 3. Check LocalStorage
                         for (let j = 0; j < localStorage.length; j++) {
                             let val = localStorage.getItem(localStorage.key(j));
-                            if (val && regex.test(val)) return val.match(regex)[0];
+                            if (val && regex.test(val)) {
+                                let m = val.match(regex);
+                                if (m) return m[0];
+                            }
                         }
-                        const htmlMatch = document.documentElement.innerHTML.match(regex);
-                        if (htmlMatch) return htmlMatch[0];
                         return "";
                     });
                 } catch(e) {}
+
                 if (finalUpi) break;
+                
+                // Agar pehle page par na mile toh profile page par check karo
+                if (i === 8) {
+                    try {
+                        await page.goto('https://dashboard.paytm.com/next/profile', { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(e=>{});
+                        await new Promise(r => setTimeout(r, 3000));
+                    } catch(e) {}
+                }
+                
                 await new Promise(r => setTimeout(r, 1000));
             }
             
             if (!finalUpi || finalUpi.trim() === "") {
-                finalUpi = `${phone}@pty`;
+                finalUpi = `paytm.${phone}@pty`; // Updated smart fallback format
             }
         } 
         else if (currentWallet.includes('mobikwik')) { finalUpi = `${phone}@ikwik`; } 
