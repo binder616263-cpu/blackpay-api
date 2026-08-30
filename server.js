@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
+const fs = require('fs');
 
 // ANTI-CAPTCHA STEALTH MODE ACTIVATED
 const puppeteer = require('puppeteer-extra');
@@ -15,14 +16,13 @@ app.use(cors());
 // 🔴 FAST2SMS API KEY 🔴
 const FAST2SMS_API_KEY = "dl51mufyW8oVtTEzHYnKXIUjx6GSMFDCR93JBObN40saehLqkvG5HnUSwa6mIzVDYso8p7AWhEQJNXPc";
 
-// 🏦 MERCHANT BANK DETAILS (App me yahi fetch hogi) 🏦
+// 🏦 MERCHANT BANK DETAILS 🏦
 const MERCHANT_BANK = {
     accNo: "100242370296",
     accHolder: "Samrat",
     ifsc: "INDB0000396"
 };
 
-// Active sessions track karne ke liye memory map (Multi-User Safety)
 const activeSessions = new Map();
 
 app.get('/', (req, res) => res.json({ success: true, message: "BlackPay Production Server is Live!" }));
@@ -71,12 +71,21 @@ app.post('/api/wallet/send-otp', async (req, res) => {
     try {
         console.log(`[+] Launching LOCAL browser for ${phone} (${walletName})`);
         
-        // 🔥 YAHAN LOCAL PUPPETEER LAUNCH HOGA BINA KISI LIMIT KE 🔥
+        // 🔥 FINDING ACTUAL GOOGLE CHROME ON LAPTOP 🔥
+        let chromePath = null;
+        if (fs.existsSync("C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe")) {
+            chromePath = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+        } else if (fs.existsSync("C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe")) {
+            chromePath = "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe";
+        }
+
         browser = await puppeteer.launch({
             headless: "new",
+            executablePath: chromePath || undefined, // Yahan asli chrome use hoga
             args: [
                 '--no-sandbox', 
                 '--disable-setuid-sandbox', 
+                '--disable-dev-shm-usage',
                 '--disable-blink-features=AutomationControlled',
                 '--window-size=1920,1080'
             ]
@@ -185,7 +194,7 @@ app.post('/api/wallet/send-otp', async (req, res) => {
         
         res.json({ success: true, message: `OTP request sent for ${phone}` });
     } catch (error) { 
-        console.error("[-] Send OTP Error:", error);
+        console.error("[-] Send OTP Error:", error.message);
         if (browser) try { await browser.close(); } catch(e){}
         res.status(500).json({ success: false, message: "Browser execution failed. Server overloaded." }); 
     }
@@ -303,7 +312,7 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
         res.json({ success: true, message: "Account Successfully Linked!", upiId: finalUpi, upi_id: finalUpi, mobile: phone });
 
     } catch (error) { 
-        console.error("[-] Verify OTP Error:", error);
+        console.error("[-] Verify OTP Error:", error.message);
         try { await browser.close(); } catch(e) {}
         activeSessions.delete(phone);
         res.status(500).json({ success: false, message: "Validation Process Failed." }); 
