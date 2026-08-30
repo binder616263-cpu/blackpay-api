@@ -1,7 +1,6 @@
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
-const https = require('https');
 
 // ANTI-CAPTCHA STEALTH MODE ACTIVATED
 const puppeteer = require('puppeteer-extra');
@@ -24,17 +23,10 @@ const MERCHANT_BANK = {
 };
 
 // Active sessions track karne ke liye memory map (Multi-User Safety)
-// Format: Mobile Number -> { browser, page, walletType }
 const activeSessions = new Map();
 
-// ============================================================================
-// DUMMY ACCOUNT & APP STABILITY ROUTES
-// ============================================================================
 app.get('/', (req, res) => res.json({ success: true, message: "BlackPay Production Server is Live!" }));
 app.get('/api/get-payment-details', (req, res) => res.json({ success: true, data: MERCHANT_BANK }));
-app.get('/api/account', (req, res) => res.json({ success: true, message: "Account Active", data: { name: "BlackPay Merchant" } }));
-app.get('/next/micro/ar/all-customers', (req, res) => res.json({ success: true, data: [] }));
-app.get('/next/micro/coms/contacts', (req, res) => res.json({ success: true, contacts: [] }));
 
 // ============================================================================
 // 0. API: APP LOGIN & REGISTER OTP (FAST2SMS)
@@ -57,7 +49,7 @@ app.post('/api/auth/send-otp', async (req, res) => {
 });
 
 // ============================================================================
-// 1. API: MULTI-USER AUTOMATED SEND OTP (TOOL BINDING)
+// 1. API: MULTI-USER AUTOMATED SEND OTP (TOOL BINDING - LOCAL BROWSER)
 // ============================================================================
 app.post('/api/wallet/send-otp', async (req, res) => {
     const phone = req.body.number || req.body.phone;
@@ -67,7 +59,6 @@ app.post('/api/wallet/send-otp', async (req, res) => {
 
     let walletName = walletType ? walletType.toLowerCase().trim() : "freecharge";
 
-    // Agar is user ka pehle se browser khula hai toh use band karo taaki clash na ho
     if (activeSessions.has(phone)) {
         try {
             let oldSession = activeSessions.get(phone);
@@ -78,19 +69,23 @@ app.post('/api/wallet/send-otp', async (req, res) => {
 
     let browser, page;
     try {
-        try {
-            browser = await puppeteer.connect({ 
-                browserWSEndpoint: 'wss://chrome.browserless.io?token=2V6jGIUi9i2HHBN13c561fc98136daa73b9388455b558503a&stealth=true&--disable-web-security=true&--disable-blink-features=AutomationControlled',
-                defaultViewport: { width: 1920, height: 1080 }
-            });
-        } catch (connErr) {
-            return res.status(500).json({ success: false, message: "Browser Limit Full! Please wait 1 min and try again." });
-        }
+        console.log(`[+] Launching LOCAL browser for ${phone} (${walletName})`);
+        
+        // 🔥 YAHAN LOCAL PUPPETEER LAUNCH HOGA BINA KISI LIMIT KE 🔥
+        browser = await puppeteer.launch({
+            headless: "new",
+            args: [
+                '--no-sandbox', 
+                '--disable-setuid-sandbox', 
+                '--disable-blink-features=AutomationControlled',
+                '--window-size=1920,1080'
+            ]
+        });
         
         page = await browser.newPage();
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
         
-        if (walletName === 'paytm' || walletName === 'paytm business') {
+        if (walletName.includes('paytm')) {
             try { await page.goto('https://dashboard.paytm.com/login/', { waitUntil: 'domcontentloaded', timeout: 35000 }); } 
             catch (e) { await browser.close(); return res.status(400).json({ success: false, message: "Paytm server slow. Try again." }); }
             
@@ -178,26 +173,26 @@ app.post('/api/wallet/send-otp', async (req, res) => {
             await page.keyboard.press('Enter');
         }
 
-        // Save session for this specific user
         activeSessions.set(phone, { browser, page, walletType: walletName });
 
-        // Auto clean session after 90 seconds if verify API is not hit
         setTimeout(async () => {
             if (activeSessions.has(phone)) {
                 try { await browser.close(); } catch(e) {}
                 activeSessions.delete(phone);
+                console.log(`[!] Auto-closed session for ${phone} due to timeout.`);
             }
         }, 90000);
         
         res.json({ success: true, message: `OTP request sent for ${phone}` });
     } catch (error) { 
+        console.error("[-] Send OTP Error:", error);
         if (browser) try { await browser.close(); } catch(e){}
-        res.status(500).json({ success: false, message: "Network Error." }); 
+        res.status(500).json({ success: false, message: "Browser execution failed. Server overloaded." }); 
     }
 });
 
 // ============================================================================
-// 2. API: MULTI-USER VERIFY OTP & EXTRACT ORIGINAL UPI (WITH @pty FIX)
+// 2. API: MULTI-USER VERIFY OTP & EXTRACT ORIGINAL UPI
 // ============================================================================
 app.post('/api/wallet/verify-otp', async (req, res) => {
     const phone = req.body.number || req.body.phone;
@@ -265,11 +260,9 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
         let currentUrl = ""; try { currentUrl = page.url() || ""; } catch(e) { currentUrl = currentWallet; }
         let finalUpi = "";
 
-        // Freecharge logic
         if (currentUrl.includes('freecharge') || currentWallet.includes('freecharge')) { 
             finalUpi = `${phone}@freecharge`; 
         } 
-        // Paytm / Paytm Business logic (Extraction priorities)
         else if (currentUrl.includes('paytm') || currentWallet.includes('paytm')) {
             try {
                 console.log("[+] Navigating to Paytm QR-Details for original merchant @pty UPI...");
@@ -297,7 +290,6 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
                 await new Promise(r => setTimeout(r, 1000));
             }
             
-            // Fallback for Paytm business if scan missed
             if (!finalUpi || finalUpi.trim() === "") {
                 finalUpi = `${phone}@pty`;
             }
@@ -305,20 +297,19 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
         else if (currentWallet.includes('mobikwik')) { finalUpi = `${phone}@ikwik`; } 
         else if (currentWallet.includes('phonepe')) { finalUpi = `${phone}@ybl`; }
 
-        // Cleanup user session
         try { await browser.close(); } catch(e) {}
         activeSessions.delete(phone);
 
         res.json({ success: true, message: "Account Successfully Linked!", upiId: finalUpi, upi_id: finalUpi, mobile: phone });
 
     } catch (error) { 
+        console.error("[-] Verify OTP Error:", error);
         try { await browser.close(); } catch(e) {}
         activeSessions.delete(phone);
         res.status(500).json({ success: false, message: "Validation Process Failed." }); 
     }
 });
 
-// Server Listen
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => { 
     console.log(`🚀 BlackPay Multi-User Production Server running on port ${PORT}`); 
