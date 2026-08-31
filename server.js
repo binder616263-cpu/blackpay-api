@@ -78,17 +78,18 @@ app.post('/api/wallet/send-otp', async (req, res) => {
             chromePath = "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe";
         }
 
-        browser = await puppeteer.launch({
-            headless: "new",
-            executablePath: chromePath || undefined,
-            args: [
-                '--no-sandbox', 
-                '--disable-setuid-sandbox', 
-                '--disable-dev-shm-usage',
-                '--disable-blink-features=AutomationControlled',
-                '--window-size=1920,1080'
-            ]
-        });
+     browser = await puppeteer.launch({
+    headless: true, // "new" hata kar true kar de
+    executablePath: chromePath || undefined,
+    args: [
+        '--no-sandbox', 
+        '--disable-setuid-sandbox', 
+        '--disable-dev-shm-usage',
+        '--disable-gpu', // Yeh zaroor add kar taaki GPU par load na pade
+        '--disable-blink-features=AutomationControlled',
+        '--window-size=1920,1080'
+    ]
+});
         
         page = await browser.newPage();
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
