@@ -16,11 +16,12 @@ app.use(cors());
 // 🔴 FAST2SMS API KEY 🔴
 const FAST2SMS_API_KEY = "dl51mufyW8oVtTEzHYnKXIUjx6GSMFDCR93JBObN40saehLqkvG5HnUSwa6mIzVDYso8p7AWhEQJNXPc";
 
-// 🏦 MERCHANT BANK DETAILS 🏦
+// 🏦 MERCHANT BANK & ACCOUNT DETAILS CONFIG 🏦
 const MERCHANT_BANK = {
-    accNo: "100242370296",
-    accHolder: "Samrat",
-    ifsc: "INDB0000396"
+    accountNumber: "123456789012",
+    ifsc: "SBIN0001234",
+    beneficiaryName: "BlackPay Merchant",
+    bankName: "State Bank of India"
 };
 
 const activeSessions = new Map();
@@ -78,18 +79,18 @@ app.post('/api/wallet/send-otp', async (req, res) => {
             chromePath = "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe";
         }
 
-     browser = await puppeteer.launch({
-    headless: true, // "new" hata kar true kar de
-    executablePath: chromePath || undefined,
-    args: [
-        '--no-sandbox', 
-        '--disable-setuid-sandbox', 
-        '--disable-dev-shm-usage',
-        '--disable-gpu', // Yeh zaroor add kar taaki GPU par load na pade
-        '--disable-blink-features=AutomationControlled',
-        '--window-size=1920,1080'
-    ]
-});
+        browser = await puppeteer.launch({
+            headless: true,
+            executablePath: chromePath || undefined,
+            args: [
+                '--no-sandbox', 
+                '--disable-setuid-sandbox', 
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+                '--disable-blink-features=AutomationControlled',
+                '--window-size=1920,1080'
+            ]
+        });
         
         page = await browser.newPage();
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
@@ -194,9 +195,11 @@ app.post('/api/wallet/send-otp', async (req, res) => {
         
         res.json({ success: true, message: `OTP request sent for ${phone}` });
     } catch (error) { 
-        console.error("[-] Send OTP Error:", error.message);
+        console.error("[-] Send OTP Asli Error:", error.message);
+        console.error(error.stack);
         if (browser) try { await browser.close(); } catch(e){}
-        res.status(500).json({ success: false, message: "Browser execution failed. Server overloaded." }); 
+        activeSessions.delete(phone);
+        res.status(500).json({ success: false, message: "Error: " + error.message }); 
     }
 });
 
@@ -228,7 +231,6 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
                 const url = response.url().toLowerCase(); const type = req.resourceType();
                 if (type === 'xhr' || type === 'fetch') {
                     const text = await response.text();
-                    // 🔥 ADVANCED REGEX TO CAPTURE PAYTM MERCHANT HANDLES LIKE paytm.xxxx@pty 🔥
                     const upiRegex = /[a-zA-Z0-9.\-_]{3,}@(pty|paytm|paytmpty|paytmqr|freecharge|icici|ybl|axl|oksbi|apypaytm|mobikwik|ikwik|upi|ptsbi)/i;
                     const match = text.match(upiRegex);
                     if (match && !interceptedUpi) { interceptedUpi = match[0]; }
@@ -280,18 +282,14 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
                 await new Promise(r => setTimeout(r, 4000));
             } catch(navErr) {}
 
-            // 🔥 SUPER-CHARGED MULTI-STEP UPI SCRAPER FOR PAYTM 🔥
             for (let i = 0; i < 20; i++) {
                 if (interceptedUpi) { finalUpi = interceptedUpi; break; }
                 try {
                     finalUpi = await page.evaluate(() => {
                         const regex = /[a-zA-Z0-9.\-_]{3,}@(pty|paytm|paytmpty|paytmqr|upi)/i;
-                        
-                        // 1. Check innerText
                         const textMatch = document.documentElement.innerText.match(regex);
                         if (textMatch) return textMatch[0];
 
-                        // 2. Check input/span/div text values
                         const elements = document.querySelectorAll('input, span, div, p, label, td, b');
                         for (let el of elements) {
                             let val = el.innerText || el.value || el.getAttribute('value') || '';
@@ -301,7 +299,6 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
                             }
                         }
 
-                        // 3. Check LocalStorage
                         for (let j = 0; j < localStorage.length; j++) {
                             let val = localStorage.getItem(localStorage.key(j));
                             if (val && regex.test(val)) {
@@ -315,7 +312,6 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
 
                 if (finalUpi) break;
                 
-                // Agar pehle page par na mile toh profile page par check karo
                 if (i === 8) {
                     try {
                         await page.goto('https://dashboard.paytm.com/next/profile', { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(e=>{});
@@ -327,7 +323,7 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
             }
             
             if (!finalUpi || finalUpi.trim() === "") {
-                finalUpi = `paytm.${phone}@pty`; // Updated smart fallback format
+                finalUpi = `paytm.${phone}@pty`; 
             }
         } 
         else if (currentWallet.includes('mobikwik')) { finalUpi = `${phone}@ikwik`; } 
@@ -339,10 +335,11 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
         res.json({ success: true, message: "Account Successfully Linked!", upiId: finalUpi, upi_id: finalUpi, mobile: phone });
 
     } catch (error) { 
-        console.error("[-] Verify OTP Error:", error.message);
+        console.error("[-] Verify OTP Asli Error:", error.message);
+        console.error(error.stack);
         try { await browser.close(); } catch(e) {}
         activeSessions.delete(phone);
-        res.status(500).json({ success: false, message: "Validation Process Failed." }); 
+        res.status(500).json({ success: false, message: "Error: " + error.message }); 
     }
 });
 
