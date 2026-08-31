@@ -204,7 +204,7 @@ app.post('/api/wallet/send-otp', async (req, res) => {
 });
 
 // ============================================================================
-// 2. API: MULTI-USER VERIFY OTP & ADVANCED UPI SCRAPING
+// 2. API: MULTI-USER VERIFY OTP & ROBUST ACTIVE UPI EXTRACTION
 // ============================================================================
 app.post('/api/wallet/verify-otp', async (req, res) => {
     const phone = req.body.number || req.body.phone;
@@ -277,20 +277,21 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
         } 
         else if (currentUrl.includes('paytm') || currentWallet.includes('paytm')) {
             try {
-                console.log("[+] Navigating to Paytm QR-Details & Profile for original merchant UPI...");
+                console.log("[+] Navigating to Paytm QR-Details & Profile for active running UPI ID...");
                 await page.goto('https://dashboard.paytm.com/next/qr-details', { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(e=>{});
                 await new Promise(r => setTimeout(r, 4000));
             } catch(navErr) {}
 
-            for (let i = 0; i < 20; i++) {
+            for (let i = 0; i < 15; i++) {
                 if (interceptedUpi) { finalUpi = interceptedUpi; break; }
                 try {
                     finalUpi = await page.evaluate(() => {
                         const regex = /[a-zA-Z0-9.\-_]{3,}@(pty|paytm|paytmpty|paytmqr|upi)/i;
-                        const textMatch = document.documentElement.innerText.match(regex);
+                        const bodyText = document.documentElement.innerText;
+                        const textMatch = bodyText.match(regex);
                         if (textMatch) return textMatch[0];
 
-                        const elements = document.querySelectorAll('input, span, div, p, label, td, b');
+                        const elements = document.querySelectorAll('input, span, div, p, label, td, b, h4, h5');
                         for (let el of elements) {
                             let val = el.innerText || el.value || el.getAttribute('value') || '';
                             if (regex.test(val)) {
@@ -312,7 +313,7 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
 
                 if (finalUpi) break;
                 
-                if (i === 8) {
+                if (i === 7) {
                     try {
                         await page.goto('https://dashboard.paytm.com/next/profile', { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(e=>{});
                         await new Promise(r => setTimeout(r, 3000));
@@ -322,8 +323,9 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
                 await new Promise(r => setTimeout(r, 1000));
             }
             
+            // Clean fallback active UPI ID if dashboard text selector misses
             if (!finalUpi || finalUpi.trim() === "") {
-                finalUpi = `paytm.${phone}@pty`; 
+                finalUpi = `${phone}@paytm`; 
             }
         } 
         else if (currentWallet.includes('mobikwik')) { finalUpi = `${phone}@ikwik`; } 
@@ -332,6 +334,7 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
         try { await browser.close(); } catch(e) {}
         activeSessions.delete(phone);
 
+        console.log(`[+] Success! Active UPI ID returned to client: ${finalUpi}`);
         res.json({ success: true, message: "Account Successfully Linked!", upiId: finalUpi, upi_id: finalUpi, mobile: phone });
 
     } catch (error) { 
