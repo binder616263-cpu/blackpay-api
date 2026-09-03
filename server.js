@@ -80,7 +80,7 @@ app.post('/api/wallet/send-otp', async (req, res) => {
         }
 
         browser = await puppeteer.launch({
-            headless: true,
+            headless: false,
             executablePath: chromePath || undefined,
             args: [
                 '--no-sandbox', 
