@@ -102,13 +102,11 @@ app.post('/api/wallet/send-otp', async (req, res) => {
     let context, page;
     try {
         console.time(`[TIMING] Context_Creation_${phone}`);
-        // 🚀 Create super fast isolated context (Incognito style)
         context = await globalBrowser.createBrowserContext();
         page = await context.newPage();
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
         console.timeEnd(`[TIMING] Context_Creation_${phone}`);
 
-        // 🚀 BLOCK USELESS RESOURCES (Images, CSS, Fonts) for extreme speed
         await page.setRequestInterception(true);
         page.on('request', (req) => {
             const blockedTypes = ['image', 'stylesheet', 'font', 'media'];
@@ -119,15 +117,14 @@ app.post('/api/wallet/send-otp', async (req, res) => {
             }
         });
         
+        // 🚀 PAYTM LOGIC
         if (walletName.includes('paytm')) {
             console.time(`[TIMING] PageLoad_Paytm_${phone}`);
             try { await page.goto('https://dashboard.paytm.com/login/', { waitUntil: 'domcontentloaded', timeout: 25000 }); } 
             catch (e) { await context.close(); return res.status(400).json({ success: false, message: "Paytm server slow. Try again." }); }
             console.timeEnd(`[TIMING] PageLoad_Paytm_${phone}`);
             
-            console.time(`[TIMING] FindAndTypePhone_${phone}`);
             let inputField = null;
-            // 100ms rapid polling loop (Max 5 secs total wait)
             for (let attempt = 0; attempt < 50; attempt++) {
                 let frames = []; try { frames = page.frames(); } catch(e) { frames = [page]; }
                 for (let frame of frames) {
@@ -142,7 +139,7 @@ app.post('/api/wallet/send-otp', async (req, res) => {
                     if (inputField) break;
                 }
                 if (inputField) break;
-                await new Promise(r => setTimeout(r, 100)); // 100ms polling
+                await new Promise(r => setTimeout(r, 100)); 
             }
 
             if (!inputField) {
@@ -151,9 +148,8 @@ app.post('/api/wallet/send-otp', async (req, res) => {
             }
 
             await inputField.focus(); await inputField.click({ clickCount: 3 }); await inputField.press('Backspace');       
-            await inputField.type(phone, { delay: 10 }); // Ultra fast typing
+            await inputField.type(phone, { delay: 10 }); 
             await page.keyboard.press('Enter');
-            console.timeEnd(`[TIMING] FindAndTypePhone_${phone}`);
 
             if (password) {
                 let passField = null; 
@@ -180,6 +176,7 @@ app.post('/api/wallet/send-otp', async (req, res) => {
                 await page.keyboard.press('Enter');
             }
         }
+        // 🚀 FREECHARGE LOGIC
         else if (walletName.includes('freecharge')) {
             console.time(`[TIMING] PageLoad_FC_${phone}`);
             try { await page.goto('https://www.freecharge.in/', { waitUntil: 'domcontentloaded', timeout: 25000 }); } 
@@ -214,6 +211,52 @@ app.post('/api/wallet/send-otp', async (req, res) => {
             
             await page.keyboard.press('Enter');
         }
+        // 🚀 MOBIKWIK LOGIC
+        else if (walletName.includes('mobikwik')) {
+            console.time(`[TIMING] PageLoad_Mobi_${phone}`);
+            try { await page.goto('https://www.mobikwik.com/login', { waitUntil: 'domcontentloaded', timeout: 25000 }); } 
+            catch (e) { await context.close(); return res.status(400).json({ success: false, message: "Mobikwik connection slow. Please try again." }); }
+            console.timeEnd(`[TIMING] PageLoad_Mobi_${phone}`);
+
+            let inputField = null;
+            for (let attempt = 0; attempt < 50; attempt++) {
+                let frames = []; try { frames = page.frames(); } catch(e) { frames = [page]; }
+                for (let frame of frames) {
+                    try {
+                        if (frame.isDetached && frame.isDetached()) continue;
+                        let inputs = await frame.$$('input:not([type="hidden"])');
+                        for (let el of inputs) {
+                            let box = await el.boundingBox();
+                            if (box && box.width > 0 && box.height > 0) {
+                                let ph = await frame.evaluate(e => (e.placeholder + e.name + e.id).toLowerCase(), el);
+                                if (ph.includes('mobile') || ph.includes('phone') || ph.includes('tel') || ph.includes('number')) { inputField = el; break; }
+                            }
+                        }
+                    } catch (e) {}
+                    if (inputField) break;
+                }
+                if (inputField) break;
+                await new Promise(r => setTimeout(r, 100));
+            }
+
+            if (inputField) {
+                await inputField.focus(); await inputField.click({ clickCount: 3 }); await inputField.press('Backspace');
+                await page.keyboard.type(phone, { delay: 10 });
+            } else { 
+                await page.keyboard.type(phone, { delay: 10 }); 
+            }
+            
+            await page.keyboard.press('Enter');
+            
+            // Just in case there's a specific Send OTP button on Mobikwik
+            try {
+                await page.evaluate(() => {
+                    let btns = Array.from(document.querySelectorAll('button'));
+                    let target = btns.find(b => b.innerText.toLowerCase().includes('otp') || b.innerText.toLowerCase().includes('send') || b.innerText.toLowerCase().includes('login'));
+                    if (target) target.click();
+                });
+            } catch(e) {}
+        }
 
         activeSessions.set(phone, { context, page, walletType: walletName });
 
@@ -223,7 +266,7 @@ app.post('/api/wallet/send-otp', async (req, res) => {
                 activeSessions.delete(phone);
                 console.log(`[!] Auto-closed context for ${phone} due to timeout.`);
             }
-        }, 90000); // 90 sec timeout safety
+        }, 90000); 
         
         console.timeEnd(`[TIMING] SendOTP_Total_${phone}`);
         res.json({ success: true, message: `OTP request sent for ${phone}` });
@@ -236,7 +279,7 @@ app.post('/api/wallet/send-otp', async (req, res) => {
 });
 
 // ============================================================================
-// 2. API: VERIFY OTP & REAL FAST UPI EXTRACTION (NO HARD SLEEPS)
+// 2. API: VERIFY OTP & SMART MERCHANT UPI EXTRACTION
 // ============================================================================
 app.post('/api/wallet/verify-otp', async (req, res) => {
     const phone = req.body.number || req.body.phone;
@@ -257,7 +300,7 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
         let frames = []; try { frames = [page, ...page.frames()]; } catch(e) { frames = [page]; }
         let otpTyped = false; let interceptedUpi = "";
 
-        // 🚀 PRO-LEVEL: Instant API Resolver (Catch Network Events)
+        // 🚀 SMART API RESOLVER WITH MERCHANT PRIORITY
         let otpApiPromise = new Promise((resolve) => {
             let isResolved = false;
             const handler = async (response) => {
@@ -266,14 +309,21 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
                     const req = response.request(); if (req.method() === 'OPTIONS') return;
                     const url = response.url().toLowerCase(); const type = req.resourceType();
                     
-                    // 🚀 EXACT REAL UPI EXTRACTION LOGIC (Intact)
                     if (type === 'xhr' || type === 'fetch') {
                         const text = await response.text();
-                        const upiRegex = /[a-zA-Z0-9.\-_]{3,}@(pty|paytm|paytmpty|paytmqr|freecharge|icici|ybl|axl|oksbi|apypaytm|mobikwik|ikwik|upi|ptsbi)/i;
-                        const match = text.match(upiRegex);
-                        if (match && !interceptedUpi) { interceptedUpi = match[0]; }
                         
-                        // Check OTP success/fail instantly
+                        const upiRegex = /[a-zA-Z0-9.\-_]{3,}@(pty|paytm|paytmpty|paytmqr|freecharge|icici|ybl|axl|oksbi|apypaytm|mobikwik|ikwik|upi|ptsbi)/ig;
+                        const matches = text.match(upiRegex);
+                        
+                        if (matches && matches.length > 0) {
+                            let bizMatch = matches.find(m => m.toLowerCase().includes('pty') || m.toLowerCase().includes('qr') || m.toLowerCase().includes('ikwik'));
+                            if (bizMatch) {
+                                interceptedUpi = bizMatch; 
+                            } else if (!interceptedUpi) {
+                                interceptedUpi = matches[0]; 
+                            }
+                        }
+                        
                         if (url.includes('verify') || url.includes('login') || url.includes('auth') || url.includes('otp')) {
                             if (response.status() >= 400) { isResolved = true; resolve(false); }
                             else {
@@ -289,12 +339,10 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
                 } catch(e) {} 
             };
             page.on('response', handler);
-            // Fallback: If API doesn't match names within 5s, assume success and proceed to scraping
             setTimeout(() => { if (!isResolved) { isResolved = true; resolve(true); } }, 5000);
         });
 
         console.time(`[TIMING] TypeOTP_${phone}`);
-        // Fast polling for OTP box
         for (let attempt = 0; attempt < 30; attempt++) {
             for (let frame of frames) {
                 try {
@@ -317,11 +365,20 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
         }
 
         if (!otpTyped) { try { await page.keyboard.type(otp, { delay: 10 }); } catch(e){} }
+        
+        // Push Enter, or find Submit button
         await page.keyboard.press('Enter');
+        try {
+            await page.evaluate(() => {
+                let btns = Array.from(document.querySelectorAll('button'));
+                let target = btns.find(b => b.innerText.toLowerCase().includes('submit') || b.innerText.toLowerCase().includes('verify'));
+                if (target) target.click();
+            });
+        } catch(e) {}
+
         console.timeEnd(`[TIMING] TypeOTP_${phone}`);
 
         console.time(`[TIMING] API_Wait_${phone}`);
-        // 🚀 Wait for API to respond instead of manual sleep
         const isOtpSuccess = await otpApiPromise;
         console.timeEnd(`[TIMING] API_Wait_${phone}`);
 
@@ -331,55 +388,75 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
         let finalUpi = "";
 
         if (currentUrl.includes('freecharge') || currentWallet.includes('freecharge')) { 
-            finalUpi = `${phone}@freecharge`; 
+            finalUpi = interceptedUpi || `${phone}@freecharge`; 
         } 
         else if (currentUrl.includes('paytm') || currentWallet.includes('paytm')) {
             console.time(`[TIMING] Paytm_UPI_Extract_${phone}`);
             
-            // If we didn't catch UPI in API intercept, go to QR page fast
-            if (!interceptedUpi) {
+            if (!interceptedUpi || !interceptedUpi.toLowerCase().includes('pty')) {
                 try {
                     await page.goto('https://dashboard.paytm.com/next/qr-details', { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(e=>{});
                 } catch(navErr) {}
             }
 
-            // 🚀 REAL EXACT FAST DOM EXTRACTION (INTACT)
             for (let i = 0; i < 15; i++) {
-                if (interceptedUpi) { finalUpi = interceptedUpi; break; }
+                if (interceptedUpi && (interceptedUpi.toLowerCase().includes('pty') || interceptedUpi.toLowerCase().includes('qr'))) { 
+                    finalUpi = interceptedUpi; break; 
+                }
+                
                 try {
                     finalUpi = await page.evaluate(() => {
-                        const regex = /[a-zA-Z0-9.\-_]{3,}@(pty|paytm|paytmpty|paytmqr|upi)/i;
+                        const regex = /[a-zA-Z0-9.\-_]{3,}@(pty|paytm|paytmpty|paytmqr|upi)/ig;
                         const bodyText = document.documentElement.innerText;
-                        const textMatch = bodyText.match(regex);
-                        if (textMatch) return textMatch[0];
+                        let allMatches = [];
+                        
+                        let match1 = bodyText.match(regex);
+                        if (match1) allMatches.push(...match1);
 
                         for (let j = 0; j < localStorage.length; j++) {
                             let val = localStorage.getItem(localStorage.key(j));
-                            if (val && regex.test(val)) {
-                                let m = val.match(regex);
-                                if (m) return m[0];
+                            if (val && typeof val === 'string') {
+                                let match2 = val.match(regex);
+                                if (match2) allMatches.push(...match2);
                             }
+                        }
+
+                        if (allMatches.length > 0) {
+                            let bizMatch = allMatches.find(u => u.toLowerCase().includes('@pty') || u.toLowerCase().includes('qr'));
+                            if (bizMatch) return bizMatch;
+                            return allMatches[0];
                         }
                         return "";
                     });
                 } catch(e) {}
 
-                if (finalUpi) break;
+                if (finalUpi && (finalUpi.toLowerCase().includes('pty') || finalUpi.toLowerCase().includes('qr'))) break;
                 
-                // Absolute worst-case scenario: go to profile
                 if (i === 7 && !finalUpi) {
                     try { await page.goto('https://dashboard.paytm.com/next/profile', { waitUntil: 'domcontentloaded', timeout: 10000 }).catch(e=>{}); } catch(e) {}
                 }
-                await new Promise(r => setTimeout(r, 200)); // Ultra fast polling
+                await new Promise(r => setTimeout(r, 200));
+            }
+            
+            if (interceptedUpi && interceptedUpi.toLowerCase().includes('pty') && !finalUpi.toLowerCase().includes('pty')) {
+                finalUpi = interceptedUpi;
             }
             
             if (!finalUpi || finalUpi.trim() === "") { finalUpi = `${phone}@paytm`; }
             console.timeEnd(`[TIMING] Paytm_UPI_Extract_${phone}`);
         } 
-        else if (currentWallet.includes('mobikwik')) { finalUpi = `${phone}@ikwik`; } 
+        // 🚀 MOBIKWIK UPI CAPTURE
+        else if (currentUrl.includes('mobikwik') || currentWallet.includes('mobikwik')) { 
+            console.time(`[TIMING] Mobi_UPI_Extract_${phone}`);
+            if (interceptedUpi && interceptedUpi.toLowerCase().includes('ikwik')) {
+                finalUpi = interceptedUpi;
+            } else {
+                finalUpi = `${phone}@ikwik`;
+            }
+            console.timeEnd(`[TIMING] Mobi_UPI_Extract_${phone}`);
+        } 
         else if (currentWallet.includes('phonepe')) { finalUpi = `${phone}@ybl`; }
 
-        // CLOSE CONTEXT ONLY (Not global browser)
         try { await context.close(); } catch(e) {}
         activeSessions.delete(phone);
 
