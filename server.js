@@ -185,8 +185,57 @@ app.post('/api/wallet/send-otp', async (req, res) => {
         // 🚀 MOBIKWIK LOGIC
         else if (walletName.includes('mobikwik')) {
             await page.goto('https://www.mobikwik.com/login', { waitUntil: 'domcontentloaded', timeout: 20000 });
-            await new Promise(r => setTimeout(r, 1000));
-            await page.keyboard.type(phone, { delay: 0 });
+            
+            let inputField = null;
+            for (let attempt = 0; attempt < 50; attempt++) {
+                try {
+                    let inputs = await page.$$('input:not([type="hidden"])');
+                    for (let el of inputs) {
+                        let box = await el.boundingBox();
+                        if (box && box.width > 0 && box.height > 0) { inputField = el; break; }
+                    }
+                } catch(e) {}
+                if (inputField) break;
+                await new Promise(r => setTimeout(r, 100));
+            }
+
+            if (inputField) {
+                await inputField.focus(); 
+                await inputField.click({ clickCount: 3 }); 
+                await inputField.press('Backspace');
+                await inputField.type(phone, { delay: 10 }); // 10ms delay taaki number adhura na rahe
+            } else {
+                await new Promise(r => setTimeout(r, 1000));
+                await page.keyboard.type(phone, { delay: 10 });
+            }
+            await page.keyboard.press('Enter');
+        }
+        // 🚀 FREECHARGE LOGIC
+        else if (walletName.includes('freecharge')) {
+            await page.goto('https://www.freecharge.in/', { waitUntil: 'domcontentloaded', timeout: 20000 });
+            
+            let inputField = null;
+            for (let attempt = 0; attempt < 50; attempt++) {
+                try {
+                    let inputs = await page.$$('input:not([type="hidden"])');
+                    for (let el of inputs) {
+                        let box = await el.boundingBox();
+                        if (box && box.width > 0 && box.height > 0) { inputField = el; break; }
+                    }
+                } catch(e) {}
+                if (inputField) break;
+                await new Promise(r => setTimeout(r, 100));
+            }
+
+            if (inputField) {
+                await inputField.focus(); 
+                await inputField.click({ clickCount: 3 }); 
+                await inputField.press('Backspace');
+                await inputField.type(phone, { delay: 10 }); // 10ms delay
+            } else {
+                await new Promise(r => setTimeout(r, 1000));
+                await page.keyboard.type(phone, { delay: 10 });
+            }
             await page.keyboard.press('Enter');
         }
         // 🚀 FREECHARGE LOGIC
