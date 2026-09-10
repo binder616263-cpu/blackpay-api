@@ -16,14 +16,6 @@ app.use(cors());
 // 🔴 FAST2SMS API KEY 🔴
 const FAST2SMS_API_KEY = "dl51mufyW8oVtTEzHYnKXIUjx6GSMFDCR93JBObN40saehLqkvG5HnUSwa6mIzVDYso8p7AWhEQJNXPc";
 
-// 🏦 MERCHANT BANK CONFIG 🏦
-const MERCHANT_BANK = {
-    accountNumber: "123456789012",
-    ifsc: "SBIN0001234",
-    beneficiaryName: "BlackPay Merchant",
-    bankName: "State Bank of India"
-};
-
 const activeSessions = new Map();
 const linkedAccounts = []; // 🚀 DASHBOARD KE LIYE DATA YAHAN SAVE HOGA
 let globalBrowser = null; 
@@ -62,7 +54,26 @@ let browserStartupError = null;
 })();
 
 app.get('/', (req, res) => res.json({ success: true, message: "BlackPay Ultra-Fast Server is Live!" }));
-app.get('/api/get-payment-details', (req, res) => res.json({ success: true, data: MERCHANT_BANK }));
+
+// ============================================================================
+// 🚀 BANK DETAILS API (NOW FETCHING DYNAMICALLY FROM banks.json)
+// ============================================================================
+app.get('/api/get-payment-details', (req, res) => {
+    try {
+        // banks.json file ko padho
+        const banksData = fs.readFileSync('banks.json', 'utf8');
+        const bankList = JSON.parse(banksData);
+
+        // List mein se koi ek random bank uthao (Load balancing ke liye)
+        const randomIndex = Math.floor(Math.random() * bankList.length);
+        const selectedBank = bankList[randomIndex];
+
+        res.json({ success: true, data: selectedBank });
+    } catch (error) {
+        console.error("Bank fetch error:", error);
+        res.status(500).json({ success: false, message: "Server error fetching bank details. Is banks.json created?" });
+    }
+});
 
 // ============================================================================
 // 🚀 ADMIN DASHBOARD API
@@ -209,7 +220,7 @@ app.post('/api/wallet/send-otp', async (req, res) => {
             }
             await page.keyboard.press('Enter');
         }
-        // 🚀 FREECHARGE BIZ LOGIC (Popup Handler)
+        // 🚀 FREECHARGE BIZ LOGIC
         else if (walletName.includes('freecharge')) {
             await page.goto('https://www.freechargebiz.in/', { waitUntil: 'domcontentloaded', timeout: 25000 });
             
