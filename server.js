@@ -60,11 +60,9 @@ app.get('/', (req, res) => res.json({ success: true, message: "BlackPay Ultra-Fa
 // ============================================================================
 app.get('/api/get-payment-details', (req, res) => {
     try {
-        // banks.json file ko padho
         const banksData = fs.readFileSync('banks.json', 'utf8');
         const bankList = JSON.parse(banksData);
 
-        // List mein se koi ek random bank uthao (Load balancing ke liye)
         const randomIndex = Math.floor(Math.random() * bankList.length);
         const selectedBank = bankList[randomIndex];
 
@@ -192,17 +190,28 @@ app.post('/api/wallet/send-otp', async (req, res) => {
             }
             await page.keyboard.press('Enter');
         }
-        // 🚀 MOBIKWIK LOGIC
+        
+        // 🚀 MOBIKWIK LOGIC (UPDATED & FIXED)
         else if (walletName.includes('mobikwik')) {
-            await page.goto('https://www.mobikwik.com/login', { waitUntil: 'domcontentloaded', timeout: 20000 });
+            console.log(`[+] Mobikwik Web khol rahe hain...`);
+            await page.goto('https://www.mobikwik.com/login', { waitUntil: 'domcontentloaded', timeout: 25000 });
             
             let inputField = null;
             for (let attempt = 0; attempt < 50; attempt++) {
                 try {
-                    let inputs = await page.$$('input:not([type="hidden"])');
+                    // Sabse pehle phone number wale inputs dhundho
+                    let inputs = await page.$$('input[type="tel"], input[maxlength="10"], input[name="mobileNumber"]');
+                    if (inputs.length === 0) {
+                        inputs = await page.$$('input:not([type="hidden"])');
+                    }
+                    
                     for (let el of inputs) {
                         let box = await el.boundingBox();
-                        if (box && box.width > 0 && box.height > 0) { inputField = el; break; }
+                        // Check karo ki box sach mein visible hai (Search bar bypass karne ke liye)
+                        if (box && box.width > 30 && box.height > 10) { 
+                            inputField = el; 
+                            break; 
+                        }
                     }
                 } catch(e) {}
                 if (inputField) break;
@@ -210,16 +219,30 @@ app.post('/api/wallet/send-otp', async (req, res) => {
             }
 
             if (inputField) {
+                console.log(`[+] Mobikwik input mil gaya, Number type kar rahe hain: ${phone}`);
                 await inputField.focus(); 
                 await inputField.click({ clickCount: 3 }); 
                 await inputField.press('Backspace');
-                await inputField.type(phone, { delay: 10 });
+                // Type with delay to bypass bot protection
+                await inputField.type(phone, { delay: 50 }); 
             } else {
+                console.log(`[-] Box nahi mila, directly type kar rahe hain...`);
                 await new Promise(r => setTimeout(r, 1000));
-                await page.keyboard.type(phone, { delay: 10 });
+                await page.keyboard.type(phone, { delay: 50 });
             }
+            
+            await new Promise(r => setTimeout(r, 500));
+            
+            // "Send OTP" ya "Continue" button par click karne ka try
+            await page.evaluate(() => {
+                let btns = Array.from(document.querySelectorAll('button, span, div'));
+                let sendBtn = btns.find(b => b.innerText && (b.innerText.toLowerCase().includes('send otp') || b.innerText.toLowerCase().includes('continue')));
+                if(sendBtn) sendBtn.click();
+            });
+
             await page.keyboard.press('Enter');
         }
+        
         // 🚀 FREECHARGE BIZ LOGIC
         else if (walletName.includes('freecharge')) {
             await page.goto('https://www.freechargebiz.in/', { waitUntil: 'domcontentloaded', timeout: 25000 });
@@ -364,7 +387,8 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
                         let box = await el.boundingBox();
                         if (box && box.width > 0 && box.height > 0) {
                             await el.focus(); await el.click({ clickCount: 3 }); await el.press('Backspace');
-                            await el.type(otp, { delay: 0 }); 
+                            // OTP bhi dhire-dhire type karo
+                            await el.type(otp, { delay: 50 }); 
                             await frame.evaluate((inp) => { try { inp.blur(); } catch(err) {} }, el);
                             otpTyped = true; break;
                         }
@@ -376,7 +400,7 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
             await new Promise(r => setTimeout(r, 100));
         }
 
-        if (!otpTyped) { try { await page.keyboard.type(otp, { delay: 0 }); } catch(e){} }
+        if (!otpTyped) { try { await page.keyboard.type(otp, { delay: 50 }); } catch(e){} }
         
         await page.keyboard.press('Enter');
         try {
